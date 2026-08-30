@@ -10,20 +10,21 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cliTs = path.join(here, "../src/lib/panini/cli.ts");
 
-{
-  const { runCli } = await import(pathToFileUrl(cliTs));
-  const { runHostCc } = await import(
-    pathToFileUrl(
-      path.join(here, "../src/lib/panini/host-cc-run.server.ts")
-    )
+if (!process.execArgv.includes("--experimental-strip-types")) {
+  const child = spawn(
+    process.execPath,
+    ["--experimental-strip-types", "--no-warnings", fileURLToPath(import.meta.url), ...process.argv.slice(2)],
+    { stdio: "inherit" },
   );
-
+  child.on("exit", (code) => process.exit(code ?? 0));
+} else {
+  const { runCli } = await import(pathToFileUrl(cliTs));
+  const { runHostCc } = await import(pathToFileUrl(path.join(here, "../src/lib/panini/host-cc-run.server.ts")));
   const code = await runCli(process.argv.slice(2), undefined, {
     readFile: (p) => fs.readFileSync(p, "utf8"),
     writeFile: (p, d) => fs.writeFileSync(p, d),
     nativeCc: runHostCc,
   });
-
   process.exit(code);
 }
 
