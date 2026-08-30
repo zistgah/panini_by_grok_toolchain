@@ -49,8 +49,15 @@ if [ "$n" -lt 1 ]; then
   exit 2
 fi
 
+if [ -f "$ROOT/MANUAL.md" ]; then
+  cp -f "$ROOT/MANUAL.md" "$LIB/MANUAL.md"
+fi
+
 echo "PANINI toolchain → $PREFIX"
 echo "installed $n binaries in $BIN"
+if [ -f "$LIB/MANUAL.md" ]; then
+  echo "manual: $LIB/MANUAL.md"
+fi
 echo
 echo "Add to PATH if it is not already:"
 echo "  export PATH=\"$BIN:\$PATH\""
