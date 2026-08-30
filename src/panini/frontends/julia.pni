@@ -1,0 +1,70 @@
+/* PANINI.Frontend.Julia — STANDARD_GREEN on panini-julia-testsuite.
+ * Lex here. Lowering JULIALOWER. Eval via run_c.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Julia
+
+FUNCTION jIsDigit(ch)
+    RETURN ch >= "0" AND ch <= "9"
+END
+FUNCTION jIsAlpha(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+FUNCTION jTok(kind, value)
+    RETURN {kind: kind, value: value}
+END
+FUNCTION jLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSEIF ch == "#"
+            WHILE i < n AND source[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSEIF jIsDigit(ch)
+            raw = ""
+            WHILE i < n AND jIsDigit(source[i])
+                raw = raw + source[i]
+                i = i + 1
+            END
+            APPEND(tokens, jTok("NUM", raw))
+        ELSEIF jIsAlpha(ch)
+            raw = ""
+            WHILE i < n AND (jIsAlpha(source[i]) OR jIsDigit(source[i]))
+                raw = raw + source[i]
+                i = i + 1
+            END
+            kind = "IDENT"
+            IF raw == "function" OR raw == "end" OR raw == "return" OR raw == "if" OR raw == "else" OR raw == "elseif" OR raw == "while" OR raw == "true" OR raw == "false"
+                kind = "KW"
+            END
+            APPEND(tokens, jTok(kind, raw))
+        ELSE
+            APPEND(tokens, jTok("OP", ch))
+            i = i + 1
+        END
+    END
+    APPEND(tokens, jTok("EOF", ""))
+    RETURN tokens
+END
+
+FUNCTION run_julia(source)
+    tokens = jLex(source)
+    lowered = juliaToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Julia"
+    r.julia_tokens = LEN(tokens)
+    r.lowered = lowered
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_julia("function main()\n  return 0\nend\n")
+    RETURN r.value
+END
+
+END

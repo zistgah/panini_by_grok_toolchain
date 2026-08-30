@@ -1,0 +1,82 @@
+/* PANINI.Frontend.Kconfig — config / default eval in PANINI.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Kconfig
+FUNCTION run_kconfig(source)
+    config = {}
+    cur = ""
+    typ = "bool"
+    first = ""
+    line = ""
+    i = 0
+    n = LEN(source)
+    WHILE i <= n
+        ch = ""
+        IF i < n
+            ch = source[i]
+        END
+        IF i == n OR ch == NEWLINE()
+            t = line
+            /* trim */
+            a = 0
+            WHILE a < LEN(t) AND (t[a] == " " OR t[a] == TAB())
+                a = a + 1
+            END
+            t = SLICE(t, a, LEN(t))
+            IF LEN(t) >= 7 AND SLICE(t, 0, 7) == "config "
+                cur = SLICE(t, 7, LEN(t))
+                b = 0
+                WHILE b < LEN(cur) AND cur[b] != " "
+                    b = b + 1
+                END
+                cur = SLICE(cur, 0, b)
+                config[cur] = 1
+                IF first == ""
+                    first = cur
+                END
+                typ = "bool"
+            ELSEIF t == "bool" OR (LEN(t) >= 4 AND SLICE(t, 0, 4) == "bool")
+                typ = "bool"
+            ELSEIF LEN(t) >= 8 AND SLICE(t, 0, 8) == "tristate"
+                typ = "tristate"
+            ELSEIF LEN(t) >= 3 AND SLICE(t, 0, 3) == "int"
+                typ = "int"
+            ELSEIF LEN(t) >= 3 AND SLICE(t, 0, 3) == "hex"
+                typ = "hex"
+            ELSEIF LEN(t) >= 8 AND SLICE(t, 0, 8) == "default "
+                v = SLICE(t, 8, LEN(t))
+                c = 0
+                WHILE c < LEN(v) AND v[c] != " " AND v[c] != QUOTE()
+                    c = c + 1
+                END
+                /* if quoted skip */
+                IF LEN(v) > 0 AND v[0] == QUOTE()
+                    v = SLICE(v, 1, LEN(v) - 1)
+                ELSE
+                    v = SLICE(v, 0, c)
+                END
+                IF typ == "bool" OR typ == "tristate"
+                    config[cur] = v == "y" OR v == "true"
+                ELSEIF typ == "int"
+                    config[cur] = INT(v)
+                ELSE
+                    config[cur] = v
+                END
+            END
+            line = ""
+        ELSE
+            line = line + ch
+        END
+        i = i + 1
+    END
+    value = 0
+    IF first != ""
+        value = config[first]
+    END
+    RETURN {ok: TRUE, value: value, config: config, frontend: "PANINI.Frontend.Kconfig"}
+END
+FUNCTION main()
+    r = run_kconfig("config X" + NEWLINE() + "	bool" + NEWLINE() + "	default y" + NEWLINE())
+    RETURN 0
+END
+END

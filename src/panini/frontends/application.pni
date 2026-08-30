@@ -1,0 +1,399 @@
+/* Copyright (C) 1993-2026 Abhishek Choudhary
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Shared PANINI evaluator for def/end and function languages.
+ */
+MODULE PANINI.Frontend.Application
+
+FUNCTION feIsDigit(ch)
+    RETURN ch >= "0" AND ch <= "9"
+END
+
+FUNCTION feIsAlpha(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+
+FUNCTION feTok(kind, value)
+    RETURN {kind: kind, value: value}
+END
+
+FUNCTION fePrintNames()
+    RETURN ["print", "PRINT", "log", "println", "WriteLine", "echo", "puts", "SELECT", "console", "writeln", "Write", "printf", "display", "putStr", "disp", "print_int"]
+END
+
+FUNCTION feDefNames()
+    RETURN ["function", "def", "sub", "func", "PROCEDURE", "fn", "fun", "Fun", "method", "proc"]
+END
+
+FUNCTION feEndName(v)
+    RETURN v == "}" OR v == "end" OR v == "END" OR v == "endif" OR v == "endfunction"
+END
+
+FUNCTION feLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSEIF ch == "#"
+            WHILE i < n AND source[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSEIF ch == "/" AND i + 1 < n AND source[i + 1] == "/"
+            WHILE i < n AND source[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSEIF ch == "-" AND i + 1 < n AND source[i + 1] == "-"
+            WHILE i < n AND source[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSEIF ch == QUOTE() OR ch == "'"
+            q = ch
+            i = i + 1
+            raw = ""
+            WHILE i < n AND source[i] != q
+                raw = raw + source[i]
+                i = i + 1
+            END
+            IF i < n
+                i = i + 1
+            END
+            APPEND(tokens, feTok("STR", raw))
+        ELSEIF feIsDigit(ch)
+            raw = ""
+            WHILE i < n AND feIsDigit(source[i])
+                raw = raw + source[i]
+                i = i + 1
+            END
+            APPEND(tokens, feTok("NUM", raw))
+        ELSEIF feIsAlpha(ch)
+            raw = ""
+            WHILE i < n AND (feIsAlpha(source[i]) OR feIsDigit(source[i]))
+                raw = raw + source[i]
+                i = i + 1
+            END
+            IF raw == "REM"
+                WHILE i < n AND source[i] != NEWLINE()
+                    i = i + 1
+                END
+            ELSE
+                APPEND(tokens, feTok("IDENT", raw))
+            END
+        ELSEIF ch == "$"
+            i = i + 1
+        ELSE
+            two = ""
+            IF i + 1 < n
+                t2 = SLICE(source, i, i + 2)
+                IF t2 == "==" OR t2 == "!=" OR t2 == "<=" OR t2 == ">="
+                    two = t2
+                END
+            END
+            IF two != ""
+                APPEND(tokens, feTok("OP", two))
+                i = i + 2
+            ELSE
+                APPEND(tokens, feTok("OP", ch))
+                i = i + 1
+            END
+        END
+    END
+    APPEND(tokens, feTok("EOF", ""))
+    RETURN tokens
+END
+
+FUNCTION feNew(tokens)
+    RETURN {tokens: tokens, i: 0}
+END
+
+FUNCTION fePeek(st)
+    IF st.i >= LEN(st.tokens)
+        RETURN feTok("EOF", "")
+    END
+    RETURN st.tokens[st.i]
+END
+
+FUNCTION feEat(st)
+    t = fePeek(st)
+    st.i = st.i + 1
+    RETURN t
+END
+
+FUNCTION feParseAtom(st)
+    t = fePeek(st)
+    IF t.kind == "NUM"
+        feEat(st)
+        RETURN {op: "const", value: INT(t.value)}
+    END
+    IF t.kind == "STR"
+        feEat(st)
+        RETURN {op: "const", value: t.value}
+    END
+    IF t.kind == "IDENT"
+        feEat(st)
+        name = t.value
+        WHILE fePeek(st).value == "."
+            feEat(st)
+            IF fePeek(st).kind == "IDENT"
+                name = feEat(st).value
+            END
+        END
+        IF fePeek(st).value == "("
+            feEat(st)
+            args = []
+            WHILE fePeek(st).value != ")" AND fePeek(st).kind != "EOF"
+                APPEND(args, feParseExpr(st))
+                IF fePeek(st).value == ","
+                    feEat(st)
+                END
+            END
+            IF fePeek(st).value == ")"
+                feEat(st)
+            END
+            RETURN {op: "call", name: name, args: args}
+        END
+        IF CONTAINS(fePrintNames(), name)
+            RETURN {op: "call", name: name, args: [feParseExpr(st)]}
+        END
+        RETURN {op: "load", name: name}
+    END
+    IF t.value == "("
+        feEat(st)
+        e = feParseExpr(st)
+        IF fePeek(st).value == ")"
+            feEat(st)
+        END
+        RETURN e
+    END
+    feEat(st)
+    RETURN {op: "const", value: 0}
+END
+
+FUNCTION feParseMul(st)
+    left = feParseAtom(st)
+    WHILE fePeek(st).value == "*" OR fePeek(st).value == "/" OR fePeek(st).value == "%"
+        op = feEat(st).value
+        left = {op: "bin", operator: op, left: left, right: feParseAtom(st)}
+    END
+    RETURN left
+END
+
+FUNCTION feParseAdd(st)
+    left = feParseMul(st)
+    WHILE fePeek(st).value == "+" OR fePeek(st).value == "-"
+        op = feEat(st).value
+        left = {op: "bin", operator: op, left: left, right: feParseMul(st)}
+    END
+    RETURN left
+END
+
+FUNCTION feParseExpr(st)
+    left = feParseAdd(st)
+    v = fePeek(st).value
+    WHILE v == "==" OR v == "!=" OR v == "<" OR v == ">" OR v == "<=" OR v == ">=" OR v == "="
+        feEat(st)
+        left = {op: "bin", operator: v, left: left, right: feParseAdd(st)}
+        v = fePeek(st).value
+    END
+    RETURN left
+END
+
+FUNCTION feParseStmt(st)
+    t = fePeek(st)
+    IF t.kind == "IDENT" AND CONTAINS(feDefNames(), t.value)
+        feEat(st)
+        name = feEat(st).value
+        IF fePeek(st).value == "("
+            feEat(st)
+        END
+        params = []
+        WHILE fePeek(st).value != ")" AND fePeek(st).value != "{" AND NOT feEndName(fePeek(st).value) AND fePeek(st).kind != "EOF"
+            IF fePeek(st).kind == "IDENT"
+                APPEND(params, feEat(st).value)
+            ELSE
+                feEat(st)
+            END
+            IF fePeek(st).value == ","
+                feEat(st)
+            END
+        END
+        IF fePeek(st).value == ")"
+            feEat(st)
+        END
+        IF fePeek(st).value == "{"
+            feEat(st)
+        END
+        body = []
+        keepb = 1
+        WHILE keepb == 1
+            tt = fePeek(st)
+            IF tt.kind == "EOF"
+                keepb = 0
+            ELSE
+                IF tt.value == "end" OR tt.value == "END" OR tt.value == "}" OR tt.value == "endif" OR tt.value == "endfunction"
+                    keepb = 0
+                ELSE
+                    APPEND(body, feParseStmt(st))
+                END
+            END
+        END
+        IF feEndName(fePeek(st).value)
+            feEat(st)
+        END
+        RETURN {op: "def", name: name, params: params, body: body}
+    END
+    IF t.kind == "IDENT" AND (t.value == "if" OR t.value == "IF")
+        feEat(st)
+        c = feParseExpr(st)
+        IF fePeek(st).value == "then" OR fePeek(st).value == "THEN" OR fePeek(st).value == "{"
+            feEat(st)
+        END
+        th = feParseStmt(st)
+        el = {op: "nop"}
+        IF fePeek(st).value == "else" OR fePeek(st).value == "ELSE"
+            feEat(st)
+            el = feParseStmt(st)
+        END
+        IF feEndName(fePeek(st).value)
+            feEat(st)
+        END
+        RETURN {op: "if", cond: c, then: th, els: el}
+    END
+    IF t.kind == "IDENT" AND t.value == "return"
+        feEat(st)
+        e = feParseExpr(st)
+        IF fePeek(st).value == ";"
+            feEat(st)
+        END
+        IF fePeek(st).value == "if"
+            feEat(st)
+            c = feParseExpr(st)
+            RETURN {op: "if", cond: c, then: {op: "return", arg: e}, els: {op: "nop"}}
+        END
+        RETURN {op: "return", arg: e}
+    END
+    IF t.kind == "IDENT"
+        nxti = st.i + 1
+        IF nxti < LEN(st.tokens) AND st.tokens[nxti].value == "="
+            name = feEat(st).value
+            feEat(st)
+            v = feParseExpr(st)
+            IF fePeek(st).value == ";"
+                feEat(st)
+            END
+            RETURN {op: "assign", name: name, value: v}
+        END
+    END
+    e = feParseExpr(st)
+    IF fePeek(st).value == ";"
+        feEat(st)
+    END
+    RETURN {op: "expr", value: e}
+END
+
+FUNCTION feParse(source)
+    tokens = feLex(source)
+    st = feNew(tokens)
+    body = []
+    WHILE fePeek(st).kind != "EOF"
+        APPEND(body, feParseStmt(st))
+    END
+    RETURN {op: "program", body: body, token_count: LEN(tokens)}
+END
+
+FUNCTION feEvalExpr(e, env)
+    IF e.op == "const"
+        RETURN e.value
+    ELSEIF e.op == "load"
+        RETURN env[e.name]
+    ELSEIF e.op == "bin"
+        l = feEvalExpr(e.left, env)
+        r = feEvalExpr(e.right, env)
+        IF e.operator == "+"
+            RETURN l + r
+        ELSEIF e.operator == "-"
+            RETURN l - r
+        ELSEIF e.operator == "*"
+            RETURN l * r
+        ELSEIF e.operator == "/"
+            RETURN l / r
+        ELSEIF e.operator == "%"
+            RETURN l % r
+        ELSEIF e.operator == "==" OR e.operator == "="
+            RETURN l == r
+        ELSEIF e.operator == "!="
+            RETURN l != r
+        ELSEIF e.operator == "<"
+            RETURN l < r
+        ELSEIF e.operator == ">"
+            RETURN l > r
+        ELSEIF e.operator == "<="
+            RETURN l <= r
+        ELSEIF e.operator == ">="
+            RETURN l >= r
+        ELSE
+            RETURN 0
+        END
+    ELSEIF e.op == "call"
+        IF CONTAINS(fePrintNames(), e.name)
+            v = 0
+            IF LEN(e.args) > 0
+                v = feEvalExpr(e.args[0], env)
+            END
+            PRINT v
+            RETURN v
+        END
+        fn = env[e.name]
+        local = {}
+        j = 0
+        WHILE j < LEN(fn.params)
+            local[fn.params[j]] = feEvalExpr(e.args[j], env)
+            j = j + 1
+        END
+        RETURN feEvalBlock(fn.body, local)
+    ELSE
+        RETURN 0
+    END
+END
+
+FUNCTION feEvalBlock(stmts, env)
+    last = 0
+    k = 0
+    WHILE k < LEN(stmts)
+        s = stmts[k]
+        IF s.op == "def"
+            env[s.name] = s
+        ELSEIF s.op == "assign"
+            env[s.name] = feEvalExpr(s.value, env)
+        ELSEIF s.op == "return"
+            RETURN feEvalExpr(s.arg, env)
+        ELSEIF s.op == "if"
+            c = feEvalExpr(s.cond, env)
+            branch = s.els
+            IF c
+                branch = s.then
+            END
+            last = feEvalBlock([branch], env)
+        ELSEIF s.op == "expr"
+            last = feEvalExpr(s.value, env)
+        END
+        k = k + 1
+    END
+    RETURN last
+END
+
+FUNCTION feRun(source, frontend)
+    ast = feParse(source)
+    env = {}
+    value = feEvalBlock(ast.body, env)
+    RETURN {ok: TRUE, value: value, frontend: frontend, token_count: ast.token_count, ast: ast}
+END
+
+FUNCTION main()
+    r = feRun("def add(a, b)" + NEWLINE() + "  a + b" + NEWLINE() + "end" + NEWLINE() + "puts add(40, 2)", "test")
+    PRINT r.value
+    RETURN r.value
+END
+
+END

@@ -1,0 +1,175 @@
+/* PANINI.Frontend.Forth — stack machine in PANINI.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Forth
+
+FUNCTION fwUpper(s)
+    out = ""
+    i = 0
+    WHILE i < LEN(s)
+        ch = s[i]
+        IF ch >= "a" AND ch <= "z"
+            out = out + CHR(ORD(ch) - 32)
+        ELSE
+            out = out + ch
+        END
+        i = i + 1
+    END
+    RETURN out
+END
+
+FUNCTION fwToks(source)
+    s = source
+    out = []
+    cur = ""
+    i = 0
+    n = LEN(s)
+    WHILE i < n
+        ch = s[i]
+        IF ch == "\\"
+            WHILE i < n AND s[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSEIF ch == "("
+            WHILE i < n AND s[i] != ")"
+                i = i + 1
+            END
+            IF i < n
+                i = i + 1
+            END
+        ELSEIF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            IF cur != ""
+                APPEND(out, cur)
+                cur = ""
+            END
+            i = i + 1
+        ELSE
+            cur = cur + ch
+            i = i + 1
+        END
+    END
+    IF cur != ""
+        APPEND(out, cur)
+    END
+    RETURN out
+END
+
+FUNCTION fwExec(word, stack, dict, prints)
+    w = fwUpper(word)
+    IF LEN(word) > 0 AND ((word[0] >= "0" AND word[0] <= "9") OR word[0] == "-")
+        APPEND(stack, INT(word))
+        RETURN ""
+    END
+    IF HASKEY(dict, w)
+        body = dict[w]
+        k = 0
+        WHILE k < LEN(body)
+            err = fwExec(body[k], stack, dict, prints)
+            IF err != ""
+                RETURN err
+            END
+            k = k + 1
+        END
+        RETURN ""
+    END
+    IF w == "+" OR w == "-" OR w == "*" OR w == "/"
+        b = POP(stack)
+        a = POP(stack)
+        r = 0
+        IF w == "+"
+            r = a + b
+        ELSEIF w == "-"
+            r = a - b
+        ELSEIF w == "*"
+            r = a * b
+        ELSE
+            IF b != 0
+                r = a / b
+            END
+        END
+        APPEND(stack, r)
+        RETURN ""
+    END
+    IF w == "DUP"
+        IF LEN(stack) > 0
+            APPEND(stack, stack[LEN(stack) - 1])
+        END
+        RETURN ""
+    END
+    IF w == "SWAP"
+        IF LEN(stack) >= 2
+            b = POP(stack)
+            a = POP(stack)
+            APPEND(stack, b)
+            APPEND(stack, a)
+        END
+        RETURN ""
+    END
+    IF w == "DROP"
+        IF LEN(stack) > 0
+            POP(stack)
+        END
+        RETURN ""
+    END
+    IF w == "."
+        v = 0
+        IF LEN(stack) > 0
+            v = POP(stack)
+        END
+        PRINT v
+        APPEND(prints, STR(v))
+        RETURN ""
+    END
+    RETURN w
+END
+
+FUNCTION run_forth(source)
+    toks = fwToks(source)
+    stack = []
+    dict = {}
+    prints = []
+    i = 0
+    n = LEN(toks)
+    WHILE i < n
+        w = fwUpper(toks[i])
+        IF w == ":"
+            i = i + 1
+            IF i >= n
+                RETURN {ok: FALSE, error: "incomplete definition", frontend: "PANINI.Frontend.Forth"}
+            END
+            name = fwUpper(toks[i])
+            i = i + 1
+            body = []
+            WHILE i < n AND fwUpper(toks[i]) != ";"
+                APPEND(body, toks[i])
+                i = i + 1
+            END
+            dict[name] = body
+        ELSEIF w == "T{"
+            i = i + 1
+        ELSEIF w == "}T"
+            i = i + 1
+        ELSEIF w == "->"
+            i = i + 1
+        ELSE
+            err = fwExec(toks[i], stack, dict, prints)
+            IF err != ""
+                RETURN {ok: FALSE, error: "unknown word " + err, frontend: "PANINI.Frontend.Forth"}
+            END
+        END
+        i = i + 1
+    END
+    value = 0
+    IF LEN(stack) > 0
+        value = stack[LEN(stack) - 1]
+    ELSEIF LEN(prints) > 0
+        value = INT(prints[LEN(prints) - 1])
+    END
+    RETURN {ok: TRUE, value: value, prints: prints, frontend: "PANINI.Frontend.Forth"}
+END
+
+FUNCTION main()
+    r = run_forth("1 2 + .")
+    RETURN r.value
+END
+END

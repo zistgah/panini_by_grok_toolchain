@@ -1,0 +1,267 @@
+/* PANINI.Frontend.BASIC — CONST / PRINT / FOR integer extract.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.BASIC
+
+FUNCTION bTrim(s)
+    i = 0
+    n = LEN(s)
+    WHILE i < n AND (s[i] == " " OR s[i] == TAB())
+        i = i + 1
+    END
+    j = n
+    WHILE j > i AND (s[j - 1] == " " OR s[j - 1] == TAB() OR s[j - 1] == CR())
+        j = j - 1
+    END
+    RETURN SLICE(s, i, j)
+END
+
+FUNCTION bUpper(s)
+    out = ""
+    i = 0
+    WHILE i < LEN(s)
+        ch = s[i]
+        IF ch >= "a" AND ch <= "z"
+            out = out + CHR(ORD(ch) - 32)
+        ELSE
+            out = out + ch
+        END
+        i = i + 1
+    END
+    RETURN out
+END
+
+FUNCTION bEval(s, env)
+    s = bTrim(s)
+    n = LEN(s)
+    i = 0
+    depth = 0
+    cur = ""
+    parts = []
+    ops = []
+    WHILE i < n
+        ch = s[i]
+        IF ch == "("
+            depth = depth + 1
+            cur = cur + ch
+        ELSEIF ch == ")"
+            depth = depth - 1
+            cur = cur + ch
+        ELSEIF depth == 0 AND (ch == "+" OR ch == "-") AND LEN(cur) > 0
+            APPEND(parts, bTrim(cur))
+            APPEND(ops, ch)
+            cur = ""
+        ELSE
+            cur = cur + ch
+        END
+        i = i + 1
+    END
+    APPEND(parts, bTrim(cur))
+    IF LEN(ops) == 0
+        p = parts[0]
+        IF LEN(p) >= 2 AND p[0] == "(" AND p[LEN(p) - 1] == ")"
+            RETURN bEval(SLICE(p, 1, LEN(p) - 1), env)
+        END
+        RETURN bMul(p, env)
+    END
+    acc = bMul(parts[0], env)
+    k = 0
+    WHILE k < LEN(ops)
+        v = bMul(parts[k + 1], env)
+        IF ops[k] == "+"
+            acc = acc + v
+        ELSE
+            acc = acc - v
+        END
+        k = k + 1
+    END
+    RETURN acc
+END
+
+FUNCTION bMul(s, env)
+    s = bTrim(s)
+    n = LEN(s)
+    i = 0
+    cur = ""
+    parts = []
+    ops = []
+    WHILE i < n
+        ch = s[i]
+        IF ch == "*" OR ch == "/"
+            APPEND(parts, bTrim(cur))
+            APPEND(ops, ch)
+            cur = ""
+        ELSE
+            cur = cur + ch
+        END
+        i = i + 1
+    END
+    APPEND(parts, bTrim(cur))
+    IF LEN(ops) == 0
+        p = parts[0]
+        IF LEN(p) > 0 AND p[0] >= "0" AND p[0] <= "9"
+            RETURN INT(p)
+        END
+        IF HASKEY(env, p)
+            RETURN env[p]
+        END
+        RETURN 0
+    END
+    acc = 0
+    IF LEN(parts[0]) > 0 AND parts[0][0] >= "0" AND parts[0][0] <= "9"
+        acc = INT(parts[0])
+    ELSE
+        IF HASKEY(env, parts[0])
+            acc = env[parts[0]]
+        END
+    END
+    k = 0
+    WHILE k < LEN(ops)
+        p = parts[k + 1]
+        v = 0
+        IF LEN(p) > 0 AND p[0] >= "0" AND p[0] <= "9"
+            v = INT(p)
+        ELSE
+            IF HASKEY(env, p)
+                v = env[p]
+            END
+        END
+        IF ops[k] == "*"
+            acc = acc * v
+        ELSE
+            acc = acc / v
+        END
+        k = k + 1
+    END
+    RETURN acc
+END
+
+FUNCTION run_basic(source)
+    env = {}
+    prints = []
+    lines = []
+    cur = ""
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        IF source[i] == NEWLINE()
+            APPEND(lines, cur)
+            cur = ""
+        ELSE
+            cur = cur + source[i]
+        END
+        i = i + 1
+    END
+    APPEND(lines, cur)
+    li = 0
+    last = 0
+    WHILE li < LEN(lines)
+        line = bTrim(lines[li])
+        u = bUpper(line)
+        IF u == "" OR (LEN(u) >= 3 AND SLICE(u, 0, 3) == "REM")
+            li = li + 1
+        ELSEIF LEN(u) >= 6 AND SLICE(u, 0, 6) == "CONST "
+            rest = SLICE(line, 6, LEN(line))
+            eq = 0
+            WHILE eq < LEN(rest) AND rest[eq] != "="
+                eq = eq + 1
+            END
+            name = bTrim(SLICE(rest, 0, eq))
+            env[name] = bEval(SLICE(rest, eq + 1, LEN(rest)), env)
+            last = env[name]
+            li = li + 1
+        ELSEIF LEN(u) >= 6 AND SLICE(u, 0, 6) == "PRINT "
+            v = bEval(SLICE(line, 6, LEN(line)), env)
+            PRINT v
+            APPEND(prints, STR(v))
+            last = v
+            li = li + 1
+        ELSEIF LEN(u) >= 4 AND SLICE(u, 0, 4) == "DIM "
+            name = bTrim(SLICE(line, 4, LEN(line)))
+            env[name] = 0
+            li = li + 1
+        ELSEIF LEN(u) >= 4 AND SLICE(u, 0, 4) == "FOR "
+            /* FOR i = 1 TO 10 */
+            rest = SLICE(line, 4, LEN(line))
+            eq = 0
+            WHILE eq < LEN(rest) AND rest[eq] != "="
+                eq = eq + 1
+            END
+            vname = bTrim(SLICE(rest, 0, eq))
+            topos = -1
+            k = eq
+            ur = bUpper(rest)
+            WHILE k + 4 <= LEN(ur)
+                IF SLICE(ur, k, k + 4) == " TO "
+                    topos = k
+                    k = LEN(ur)
+                END
+                k = k + 1
+            END
+            lo = bEval(SLICE(rest, eq + 1, topos), env)
+            hi = bEval(SLICE(rest, topos + 4, LEN(rest)), env)
+            bodyStart = li + 1
+            env[vname] = lo
+            WHILE env[vname] <= hi
+                bi = bodyStart
+                WHILE bi < LEN(lines)
+                    bu = bUpper(bTrim(lines[bi]))
+                    IF LEN(bu) >= 4 AND SLICE(bu, 0, 4) == "NEXT"
+                        bi = LEN(lines)
+                    ELSE
+                        bl = bTrim(lines[bi])
+                        blu = bUpper(bl)
+                        IF LEN(blu) >= 6 AND SLICE(blu, 0, 6) == "PRINT "
+                            v = bEval(SLICE(bl, 6, LEN(bl)), env)
+                            PRINT v
+                            APPEND(prints, STR(v))
+                            last = v
+                        ELSE
+                            beq = 0
+                            WHILE beq < LEN(bl) AND bl[beq] != "="
+                                beq = beq + 1
+                            END
+                            IF beq < LEN(bl)
+                                bn = bTrim(SLICE(bl, 0, beq))
+                                env[bn] = bEval(SLICE(bl, beq + 1, LEN(bl)), env)
+                                last = env[bn]
+                            END
+                        END
+                        bi = bi + 1
+                    END
+                END
+                env[vname] = env[vname] + 1
+            END
+            WHILE li < LEN(lines)
+                IF LEN(bUpper(bTrim(lines[li]))) >= 4 AND SLICE(bUpper(bTrim(lines[li])), 0, 4) == "NEXT"
+                    li = li + 1
+                    /* break outer search */
+                    li = li
+                    kkk = LEN(lines)
+                END
+                IF kkk == LEN(lines)
+                    /* found NEXT — handled by setting li past it below */
+                END
+                li = li + 1
+            END
+        ELSE
+            eq = 0
+            WHILE eq < LEN(line) AND line[eq] != "="
+                eq = eq + 1
+            END
+            IF eq < LEN(line)
+                name = bTrim(SLICE(line, 0, eq))
+                env[name] = bEval(SLICE(line, eq + 1, LEN(line)), env)
+                last = env[name]
+            END
+            li = li + 1
+        END
+    END
+    RETURN {ok: TRUE, value: last, prints: prints, frontend: "PANINI.Frontend.BASIC"}
+END
+
+FUNCTION main()
+    r = run_basic("CONST a = 1 + 2" + NEWLINE() + "PRINT a")
+    RETURN r.value
+END
+END

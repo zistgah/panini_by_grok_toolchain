@@ -1,0 +1,181 @@
+/* PANINI.Frontend.Haskell — integer print / let-in extract.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Haskell
+
+FUNCTION hsTrim(s)
+    i = 0
+    n = LEN(s)
+    WHILE i < n AND (s[i] == " " OR s[i] == TAB() OR s[i] == NEWLINE())
+        i = i + 1
+    END
+    j = n
+    WHILE j > i AND (s[j - 1] == " " OR s[j - 1] == TAB() OR s[j - 1] == NEWLINE())
+        j = j - 1
+    END
+    RETURN SLICE(s, i, j)
+END
+
+FUNCTION hsEvalExpr(s, env)
+    s = hsTrim(s)
+    n = LEN(s)
+    IF n == 0
+        RETURN 0
+    END
+    IF n >= 4 AND SLICE(s, 0, 4) == "let "
+        rest = SLICE(s, 4, n)
+        /* let x = 40 in x + 2 */
+        i = 0
+        name = ""
+        WHILE i < LEN(rest) AND rest[i] != "="
+            name = name + rest[i]
+            i = i + 1
+        END
+        name = hsTrim(name)
+        IF i < LEN(rest) AND rest[i] == "="
+            i = i + 1
+        END
+        rhs = ""
+        WHILE i < LEN(rest)
+            IF i + 4 <= LEN(rest) AND SLICE(rest, i, i + 4) == " in "
+                i = i + 4
+                env[name] = hsEvalExpr(rhs, env)
+                RETURN hsEvalExpr(SLICE(rest, i, LEN(rest)), env)
+            END
+            rhs = rhs + rest[i]
+            i = i + 1
+        END
+        env[name] = hsEvalExpr(rhs, env)
+        RETURN env[name]
+    END
+    /* split on + - at top level */
+    i = 0
+    depth = 0
+    cur = ""
+    parts = []
+    ops = []
+    WHILE i < n
+        ch = s[i]
+        IF ch == "("
+            depth = depth + 1
+            cur = cur + ch
+        ELSEIF ch == ")"
+            depth = depth - 1
+            cur = cur + ch
+        ELSEIF depth == 0 AND (ch == "+" OR ch == "-") AND LEN(cur) > 0
+            APPEND(parts, hsTrim(cur))
+            APPEND(ops, ch)
+            cur = ""
+        ELSE
+            cur = cur + ch
+        END
+        i = i + 1
+    END
+    APPEND(parts, hsTrim(cur))
+    IF LEN(ops) == 0
+        p = parts[0]
+        IF LEN(p) >= 2 AND p[0] == "(" AND p[LEN(p) - 1] == ")"
+            RETURN hsEvalExpr(SLICE(p, 1, LEN(p) - 1), env)
+        END
+        IF LEN(p) > 0 AND p[0] >= "0" AND p[0] <= "9"
+            RETURN INT(p)
+        END
+        IF HASKEY(env, p)
+            RETURN env[p]
+        END
+        RETURN 0
+    END
+    acc = hsEvalMul(parts[0], env)
+    k = 0
+    WHILE k < LEN(ops)
+        v = hsEvalMul(parts[k + 1], env)
+        IF ops[k] == "+"
+            acc = acc + v
+        ELSE
+            acc = acc - v
+        END
+        k = k + 1
+    END
+    RETURN acc
+END
+
+FUNCTION hsEvalMul(s, env)
+    s = hsTrim(s)
+    n = LEN(s)
+    i = 0
+    depth = 0
+    cur = ""
+    parts = []
+    ops = []
+    WHILE i < n
+        ch = s[i]
+        IF ch == "("
+            depth = depth + 1
+            cur = cur + ch
+        ELSEIF ch == ")"
+            depth = depth - 1
+            cur = cur + ch
+        ELSEIF depth == 0 AND (ch == "*" OR ch == "/")
+            APPEND(parts, hsTrim(cur))
+            APPEND(ops, ch)
+            cur = ""
+        ELSE
+            cur = cur + ch
+        END
+        i = i + 1
+    END
+    APPEND(parts, hsTrim(cur))
+    IF LEN(ops) == 0
+        p = parts[0]
+        IF LEN(p) >= 2 AND p[0] == "(" AND p[LEN(p) - 1] == ")"
+            RETURN hsEvalExpr(SLICE(p, 1, LEN(p) - 1), env)
+        END
+        IF LEN(p) > 0 AND ((p[0] >= "0" AND p[0] <= "9") OR p[0] == "-")
+            RETURN INT(p)
+        END
+        IF HASKEY(env, p)
+            RETURN env[p]
+        END
+        RETURN 0
+    END
+    acc = hsEvalExpr(parts[0], env)
+    k = 0
+    WHILE k < LEN(ops)
+        v = hsEvalExpr(parts[k + 1], env)
+        IF ops[k] == "*"
+            acc = acc * v
+        ELSE
+            acc = acc / v
+        END
+        k = k + 1
+    END
+    RETURN acc
+END
+
+FUNCTION run_haskell(source)
+    /* find print ( ... )  or  print N */
+    i = 0
+    n = LEN(source)
+    expr = "0"
+    WHILE i < n
+        IF i + 6 <= n AND SLICE(source, i, i + 6) == "print "
+            i = i + 6
+            expr = hsTrim(SLICE(source, i, n))
+            WHILE LEN(expr) > 0 AND expr[LEN(expr) - 1] == NEWLINE()
+                expr = SLICE(expr, 0, LEN(expr) - 1)
+            END
+            i = n
+        ELSE
+            i = i + 1
+        END
+    END
+    value = hsEvalExpr(expr, {})
+    PRINT value
+    RETURN {ok: TRUE, value: value, frontend: "PANINI.Frontend.Haskell"}
+END
+
+FUNCTION main()
+    r = run_haskell("main = print (1+2)")
+    RETURN r.value
+END
+END

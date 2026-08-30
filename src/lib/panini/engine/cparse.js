@@ -1,6 +1,7 @@
 // @ts-nocheck
 /* Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
- * C extract parser. Shared by cinterp, --dump-ast, and the WASM backend.
+ * WASM-backend C parser. Not a frontend. Frontends live in src/panini/frontends/*.pni.
+ * c2wat walks this tree to emit WAT. Dump-ast uses PANINI cParse.
  */
 import { ccpp } from "./ccpp.js";
 import { clower } from "./clower.js";

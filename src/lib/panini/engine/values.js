@@ -107,8 +107,8 @@ export function unwrap(v) {
     case Tag.Bool:
     case Tag.Int:
     case Tag.Float:
-    case Tag.String:
-    case Tag.List: return v.value;
+    case Tag.String: return v.value;
+    case Tag.List: return Array.isArray(v.value) ? v.value.map(unwrap) : v.value;
     case Tag.Map: {
       const o = {};
       for (const [k, val] of v.value) o[k] = unwrap(val);

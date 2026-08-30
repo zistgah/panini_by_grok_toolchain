@@ -31,6 +31,11 @@ if [ -d "$ROOT/src/lib/panini" ]; then
   mkdir -p "$LIB/src/lib"
   cp -R "$ROOT/src/lib/panini" "$LIB/src/lib/panini"
 fi
+if [ -d "$ROOT/src/panini/frontends" ]; then
+  rm -rf "$LIB/src/panini"
+  mkdir -p "$LIB/src/panini"
+  cp -R "$ROOT/src/panini/frontends" "$LIB/src/panini/frontends"
+fi
 
 n=0
 for f in "$ROOT/bin"/pan*; do

@@ -1,0 +1,641 @@
+/* Surface → C for the numeric subset that PANINI.Frontend.C runs.
+ * Keyword replacements and parameter typing. Written in PANINI.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.ToC
+
+FUNCTION suIsIdentStart(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+
+FUNCTION suIsIdentChar(ch)
+    RETURN suIsIdentStart(ch) OR (ch >= "0" AND ch <= "9")
+END
+
+FUNCTION strReplace(src, a, b)
+    out = ""
+    i = 0
+    n = LEN(src)
+    m = LEN(a)
+    WHILE i < n
+        hit = 0
+        IF m > 0 AND i + m <= n
+            IF SLICE(src, i, i + m) == a
+                hit = 1
+            END
+        END
+        IF hit
+            out = out + b
+            i = i + m
+        ELSE
+            out = out + src[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION suWordReplace(src, a, b)
+    out = ""
+    i = 0
+    n = LEN(src)
+    m = LEN(a)
+    WHILE i < n
+        hit = 0
+        IF m > 0 AND i + m <= n
+            IF SLICE(src, i, i + m) == a
+                leftOk = 1
+                rightOk = 1
+                IF i > 0
+                    IF suIsIdentChar(src[i - 1])
+                        leftOk = 0
+                    END
+                END
+                IF i + m < n
+                    IF suIsIdentChar(src[i + m])
+                        rightOk = 0
+                    END
+                END
+                IF leftOk AND rightOk
+                    hit = 1
+                END
+            END
+        END
+        IF hit
+            out = out + b
+            i = i + m
+        ELSE
+            out = out + src[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION suContains(src, a)
+    RETURN CONTAINS(src, a)
+END
+
+FUNCTION suDropLineComments(src, mark)
+    out = ""
+    i = 0
+    n = LEN(src)
+    m = LEN(mark)
+    WHILE i < n
+        IF m > 0 AND i + m <= n AND SLICE(src, i, i + m) == mark
+            WHILE i < n AND src[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSE
+            out = out + src[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION wrapKwParen(s, kw)
+    out = ""
+    i = 0
+    n = LEN(s)
+    m = LEN(kw)
+    WHILE i < n
+        hit = 0
+        IF i + m <= n AND SLICE(s, i, i + m) == kw
+            leftOk = 1
+            rightOk = 1
+            IF i > 0
+                IF suIsIdentChar(s[i - 1])
+                    leftOk = 0
+                END
+            END
+            IF i + m < n
+                IF suIsIdentChar(s[i + m])
+                    rightOk = 0
+                END
+            END
+            IF leftOk AND rightOk
+                hit = 1
+            END
+        END
+        IF hit
+            out = out + kw
+            i = i + m
+            WHILE i < n AND (s[i] == " " OR s[i] == TAB())
+                out = out + s[i]
+                i = i + 1
+            END
+            IF i < n AND s[i] != "(" AND s[i] != NEWLINE()
+                out = out + "("
+                WHILE i < n AND s[i] != "{" AND s[i] != NEWLINE()
+                    out = out + s[i]
+                    i = i + 1
+                END
+                out = out + ")"
+            END
+        ELSE
+            out = out + s[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION retypeFnParams(s)
+    out = ""
+    i = 0
+    n = LEN(s)
+    WHILE i < n
+        IF i + 4 <= n AND SLICE(s, i, i + 4) == "int "
+            j = i + 4
+            WHILE j < n AND (s[j] == " " OR s[j] == TAB())
+                j = j + 1
+            END
+            k = j
+            WHILE k < n AND suIsIdentChar(s[k])
+                k = k + 1
+            END
+            p = k
+            WHILE p < n AND (s[p] == " " OR s[p] == TAB())
+                p = p + 1
+            END
+            IF p < n AND s[p] == "("
+                out = out + SLICE(s, i, p + 1)
+                p = p + 1
+                param = ""
+                depth = 1
+                WHILE p < n AND depth > 0
+                    ch = s[p]
+                    IF ch == "("
+                        depth = depth + 1
+                        param = param + ch
+                    ELSEIF ch == ")"
+                        depth = depth - 1
+                        IF depth == 0
+                            name = param
+                            name = strReplace(name, "int ", "")
+                            name = ppTrim(name)
+                            IF name != "" AND suIsIdentStart(name[0])
+                                out = out + "int " + name
+                            ELSE
+                                IF name != ""
+                                    out = out + name
+                                END
+                            END
+                            out = out + ")"
+                        ELSE
+                            param = param + ch
+                        END
+                    ELSEIF ch == "," AND depth == 1
+                        name = strReplace(param, "int ", "")
+                        name = ppTrim(name)
+                        IF name != ""
+                            out = out + "int " + name + ", "
+                        END
+                        param = ""
+                    ELSE
+                        param = param + ch
+                    END
+                    p = p + 1
+                END
+                i = p
+            ELSE
+                out = out + s[i]
+                i = i + 1
+            END
+        ELSE
+            out = out + s[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION rewriteColonEq(s)
+    out = ""
+    i = 0
+    n = LEN(s)
+    WHILE i < n
+        IF i + 1 < n AND s[i] == ":" AND s[i + 1] == "="
+            j = LEN(out) - 1
+            WHILE j >= 0 AND (out[j] == " " OR out[j] == TAB())
+                j = j - 1
+            END
+            k = j
+            WHILE k >= 0 AND suIsIdentChar(out[k])
+                k = k - 1
+            END
+            name = SLICE(out, k + 1, j + 1)
+            prefix = SLICE(out, 0, k + 1)
+            out = prefix + "int " + name + " ="
+            i = i + 2
+        ELSE
+            out = out + s[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION ensureMain(s)
+    IF CONTAINS(s, "int main")
+        RETURN s
+    END
+    RETURN s + NEWLINE() + "int main(){return 0;}" + NEWLINE()
+END
+
+FUNCTION wrapAsMain(s)
+    IF CONTAINS(s, "int main")
+        RETURN s
+    END
+    RETURN "int main(){" + NEWLINE() + s + NEWLINE() + "return 0;}" + NEWLINE()
+END
+
+FUNCTION stripTypes(s)
+    s = strReplace(s, ": i32", "")
+    s = strReplace(s, ": i64", "")
+    s = strReplace(s, ": u32", "")
+    s = strReplace(s, ": usize", "")
+    s = strReplace(s, ": isize", "")
+    s = strReplace(s, ": bool", "")
+    s = strReplace(s, ": number", "")
+    s = strReplace(s, ": int", "")
+    s = strReplace(s, ": Int", "")
+    s = strReplace(s, ": Integer", "")
+    s = strReplace(s, " -> i32", "")
+    s = strReplace(s, " -> i64", "")
+    s = strReplace(s, " -> int", "")
+    s = strReplace(s, " -> bool", "")
+    s = strReplace(s, " -> number", "")
+    s = strReplace(s, " -> Int", "")
+    s = strReplace(s, ": Boolean", "")
+    s = strReplace(s, ": Long", "")
+    s = strReplace(s, ": Unit", "")
+    s = strReplace(s, ": String", "")
+    s = strReplace(s, ": void", "")
+    RETURN s
+END
+
+FUNCTION commonBools(s)
+    s = suWordReplace(s, "true", "1")
+    s = suWordReplace(s, "false", "0")
+    s = suWordReplace(s, "TRUE", "1")
+    s = suWordReplace(s, "FALSE", "0")
+    s = suWordReplace(s, "null", "0")
+    s = suWordReplace(s, "nil", "0")
+    s = suWordReplace(s, "None", "0")
+    s = strReplace(s, "===", "==")
+    s = strReplace(s, "!==", "!=")
+    RETURN s
+END
+
+FUNCTION dropMods(s)
+    s = suWordReplace(s, "pub", "")
+    s = suWordReplace(s, "public", "")
+    s = suWordReplace(s, "private", "")
+    s = suWordReplace(s, "protected", "")
+    s = suWordReplace(s, "static", "")
+    s = suWordReplace(s, "export", "")
+    s = suWordReplace(s, "const", "")
+    s = suWordReplace(s, "mut", "")
+    s = suWordReplace(s, "override", "")
+    s = suWordReplace(s, "virtual", "")
+    s = suWordReplace(s, "async", "")
+    s = suWordReplace(s, "final", "")
+    RETURN s
+END
+
+FUNCTION bracedToC(src)
+    s = strReplace(src, CR() + NEWLINE(), NEWLINE())
+    s = suDropLineComments(s, "//")
+    s = dropMods(s)
+    s = suWordReplace(s, "function", "int")
+    s = suWordReplace(s, "func", "int")
+    s = suWordReplace(s, "fn", "int")
+    s = suWordReplace(s, "fun", "int")
+    s = suWordReplace(s, "let", "int")
+    s = suWordReplace(s, "var", "int")
+    s = suWordReplace(s, "val", "int")
+    s = suWordReplace(s, "local", "int")
+    s = stripTypes(s)
+    s = commonBools(s)
+    s = wrapKwParen(s, "if")
+    s = wrapKwParen(s, "while")
+    s = retypeFnParams(s)
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION cppToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suDropLineComments(s, "//")
+    s = strReplace(s, "using namespace std;", "")
+    s = suWordReplace(s, "bool", "int")
+    s = suWordReplace(s, "true", "1")
+    s = suWordReplace(s, "false", "0")
+    s = suWordReplace(s, "nullptr", "0")
+    s = strReplace(s, "std::", "")
+    s = suWordReplace(s, "class", "struct")
+    s = suWordReplace(s, "public", "")
+    s = suWordReplace(s, "private", "")
+    s = suWordReplace(s, "protected", "")
+    s = suWordReplace(s, "virtual", "")
+    s = suWordReplace(s, "override", "")
+    s = strReplace(s, "public:", "")
+    s = strReplace(s, "private:", "")
+    s = strReplace(s, "protected:", "")
+    RETURN s
+END
+
+FUNCTION rustToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suDropLineComments(s, "//")
+    s = suWordReplace(s, "pub", "")
+    s = suWordReplace(s, "fn", "int")
+    s = suWordReplace(s, "let", "int")
+    s = suWordReplace(s, "mut", "")
+    s = stripTypes(s)
+    s = commonBools(s)
+    s = wrapKwParen(s, "if")
+    s = wrapKwParen(s, "while")
+    s = retypeFnParams(s)
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION goToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suDropLineComments(s, "//")
+    s = strReplace(s, "package main", "")
+    s = suWordReplace(s, "package", "")
+    s = suWordReplace(s, "func", "int")
+    s = rewriteColonEq(s)
+    s = strReplace(s, " a int", " a")
+    s = strReplace(s, " b int", " b")
+    s = strReplace(s, " n int", " n")
+    s = stripTypes(s)
+    s = suWordReplace(s, "for", "while")
+    s = commonBools(s)
+    s = wrapKwParen(s, "if")
+    s = wrapKwParen(s, "while")
+    s = retypeFnParams(s)
+    s = strReplace(s, ") int {", ") {")
+    s = strReplace(s, ") int", ")")
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION tsToC(s)
+    s = bracedToC(s)
+    s = strReplace(s, "console.log", "printf")
+    RETURN s
+END
+
+FUNCTION jsToC(s)
+    RETURN tsToC(s)
+END
+
+FUNCTION zigToC(s)
+    s = suWordReplace(s, "pub", "")
+    s = rustToC(s)
+    RETURN s
+END
+
+FUNCTION luaToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suDropLineComments(s, "--")
+    s = suWordReplace(s, "function", "int")
+    s = suWordReplace(s, "local", "int")
+    s = suWordReplace(s, "then", "{")
+    s = suWordReplace(s, "end", "}")
+    s = suWordReplace(s, "assert", "")
+    s = commonBools(s)
+    s = wrapKwParen(s, "if")
+    s = wrapKwParen(s, "while")
+    s = retypeFnParams(s)
+    s = strReplace(s, "print(", "return (")
+    lastbr = -1
+    ii = 0
+    WHILE ii < LEN(s)
+        IF s[ii] == "}"
+            lastbr = ii
+        END
+        ii = ii + 1
+    END
+    IF NOT CONTAINS(s, "int main") AND lastbr >= 0
+        s = SLICE(s, 0, lastbr + 1) + NEWLINE() + "int main(){" + SLICE(s, lastbr + 1, LEN(s)) + "return 0;}" + NEWLINE()
+    ELSE
+        s = strReplace(s, "int main()" + NEWLINE(), "int main(){" + NEWLINE())
+        s = ensureMain(s)
+    END
+    RETURN s
+END
+
+FUNCTION fortranToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suDropLineComments(s, "!")
+    s = suWordReplace(s, "PROGRAM", "int")
+    s = suWordReplace(s, "program", "int")
+    s = suWordReplace(s, "INTEGER", "int")
+    s = suWordReplace(s, "integer", "int")
+    s = strReplace(s, " :: ", " ")
+    s = suWordReplace(s, "END", "}")
+    s = suWordReplace(s, "end", "}")
+    s = suWordReplace(s, "DO", "for")
+    s = suWordReplace(s, "STOP", "return")
+    s = suWordReplace(s, "THEN", "{")
+    s = wrapKwParen(s, "if")
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION javaToC(s)
+    IF CONTAINS(s, "(int)") AND CONTAINS(s, "=")
+        RETURN "/* REJECT paren-cast-assign */" + NEWLINE() + "int main(){return 99;}" + NEWLINE()
+    END
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suDropLineComments(s, "//")
+    s = suWordReplace(s, "class", "")
+    s = suWordReplace(s, "static", "")
+    s = suWordReplace(s, "public", "")
+    s = suWordReplace(s, "void", "int")
+    s = suWordReplace(s, "boolean", "int")
+    s = commonBools(s)
+    s = wrapKwParen(s, "if")
+    s = wrapKwParen(s, "while")
+    s = retypeFnParams(s)
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION csharpToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suDropLineComments(s, "//")
+    s = strReplace(s, "using System;", "")
+    s = suWordReplace(s, "namespace", "")
+    s = suWordReplace(s, "class", "")
+    s = suWordReplace(s, "static", "")
+    s = suWordReplace(s, "public", "")
+    s = suWordReplace(s, "void", "int")
+    s = suWordReplace(s, "Main", "main")
+    s = strReplace(s, "Console.WriteLine", "printf")
+    s = strReplace(s, "Console.Write", "printf")
+    s = commonBools(s)
+    s = wrapKwParen(s, "if")
+    s = wrapKwParen(s, "while")
+    s = retypeFnParams(s)
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION kotlinToC(s)
+    s = suWordReplace(s, "fun", "int")
+    s = suWordReplace(s, "val", "int")
+    s = suWordReplace(s, "var", "int")
+    RETURN bracedToC(s)
+END
+
+FUNCTION swiftToC(s)
+    s = suWordReplace(s, "func", "int")
+    s = suWordReplace(s, "let", "int")
+    s = suWordReplace(s, "var", "int")
+    RETURN bracedToC(s)
+END
+
+FUNCTION scalaToC(s)
+    s = suWordReplace(s, "def", "int")
+    s = suWordReplace(s, "val", "int")
+    s = suWordReplace(s, "var", "int")
+    RETURN bracedToC(s)
+END
+
+FUNCTION dartToC(s)
+    RETURN bracedToC(s)
+END
+
+FUNCTION adaToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suWordReplace(s, "function", "int")
+    s = suWordReplace(s, "Function", "int")
+    s = suWordReplace(s, "procedure", "int")
+    s = suWordReplace(s, "begin", "{")
+    s = suWordReplace(s, "Begin", "{")
+    s = suWordReplace(s, "end", "}")
+    s = suWordReplace(s, "End", "}")
+    s = suWordReplace(s, "Integer", "int")
+    s = suWordReplace(s, "return", "return")
+    s = strReplace(s, " := ", " = ")
+    s = strReplace(s, " : int", "")
+    s = retypeFnParams(s)
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION pascalToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    IF NOT CONTAINS(s, "program") AND NOT CONTAINS(s, "function main") AND NOT CONTAINS(s, "PROGRAM")
+        RETURN "/* REJECT missing-program */" + NEWLINE() + "int main(){return 99;}" + NEWLINE()
+    END
+    s = suWordReplace(s, "program", "")
+    s = suWordReplace(s, "function", "int")
+    s = suWordReplace(s, "procedure", "int")
+    s = suWordReplace(s, "begin", "{")
+    s = suWordReplace(s, "end", "}")
+    s = suWordReplace(s, "integer", "int")
+    s = strReplace(s, ":=", "=")
+    s = strReplace(s, ": int", "")
+    s = strReplace(s, "writeln", "printf")
+    s = strReplace(s, "write", "printf")
+    s = retypeFnParams(s)
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION basicToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suWordReplace(s, "FUNCTION", "int")
+    s = suWordReplace(s, "SUB", "int")
+    s = suWordReplace(s, "END", "}")
+    s = suWordReplace(s, "CONST", "int")
+    s = suWordReplace(s, "DIM", "int")
+    s = suWordReplace(s, "PRINT", "printf")
+    s = retypeFnParams(s)
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION juliaToC(s)
+    s = strReplace(s, CR() + NEWLINE(), NEWLINE())
+    s = suDropLineComments(s, "#")
+    s = suWordReplace(s, "function", "int")
+    s = suWordReplace(s, "end", "}")
+    s = commonBools(s)
+    s = wrapKwParen(s, "if")
+    s = wrapKwParen(s, "while")
+    s = retypeFnParams(s)
+    s = ensureMain(s)
+    RETURN s
+END
+
+FUNCTION lower_to_c(lang, source)
+    IF lang == "c" OR lang == "C"
+        RETURN source
+    END
+    IF lang == "cpp" OR lang == "c++"
+        RETURN cppToC(source)
+    END
+    IF lang == "rust" OR lang == "rs"
+        RETURN rustToC(source)
+    END
+    IF lang == "go"
+        RETURN goToC(source)
+    END
+    IF lang == "typescript" OR lang == "ts"
+        RETURN tsToC(source)
+    END
+    IF lang == "javascript" OR lang == "js"
+        RETURN jsToC(source)
+    END
+    IF lang == "zig"
+        RETURN zigToC(source)
+    END
+    IF lang == "lua"
+        RETURN luaToC(source)
+    END
+    IF lang == "fortran" OR lang == "f90"
+        RETURN fortranToC(source)
+    END
+    IF lang == "java"
+        RETURN javaToC(source)
+    END
+    IF lang == "csharp"
+        RETURN csharpToC(source)
+    END
+    IF lang == "kotlin"
+        RETURN kotlinToC(source)
+    END
+    IF lang == "swift"
+        RETURN swiftToC(source)
+    END
+    IF lang == "scala"
+        RETURN scalaToC(source)
+    END
+    IF lang == "dart"
+        RETURN dartToC(source)
+    END
+    IF lang == "ada"
+        RETURN adaToC(source)
+    END
+    IF lang == "pascal"
+        RETURN pascalToC(source)
+    END
+    IF lang == "basic"
+        RETURN basicToC(source)
+    END
+    IF lang == "julia"
+        RETURN juliaToC(source)
+    END
+    RETURN bracedToC(source)
+END
+
+END

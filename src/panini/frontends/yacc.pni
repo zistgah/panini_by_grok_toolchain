@@ -1,0 +1,17 @@
+/* PANINI.Frontend.Yacc — bison named extract.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Yacc
+FUNCTION run_yacc(source)
+    n = 0
+    IF CONTAINS(source, "%%")
+        n = 1
+    END
+    PRINT "yacc"
+    RETURN {ok: TRUE, value: n, frontend: "PANINI.Frontend.Yacc"}
+END
+FUNCTION main()
+    r = run_yacc("%%" + NEWLINE() + "expr: NUM;")
+    RETURN r.value
+END
+END

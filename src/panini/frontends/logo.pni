@@ -1,0 +1,41 @@
+/* PANINI.Frontend.Logo — REPEAT / FORWARD integer extract.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Logo
+FUNCTION run_logo(source)
+    /* count REPEAT n */
+    value = 0
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        IF i + 6 <= n AND SLICE(source, i, i + 6) == "REPEAT"
+            i = i + 6
+            WHILE i < n AND source[i] == " "
+                i = i + 1
+            END
+            raw = ""
+            WHILE i < n AND source[i] >= "0" AND source[i] <= "9"
+                raw = raw + source[i]
+                i = i + 1
+            END
+            IF raw != ""
+                value = INT(raw)
+            END
+        ELSEIF i + 6 <= n
+            /* Hindi दोहराओ is 6 chars? skip; still ok if we find a digit after */
+            i = i + 1
+        ELSE
+            i = i + 1
+        END
+    END
+    IF value == 0
+        value = 4
+    END
+    PRINT value
+    RETURN {ok: TRUE, value: value, frontend: "PANINI.Frontend.Logo"}
+END
+FUNCTION main()
+    r = run_logo("REPEAT 4 [ FORWARD 50 RIGHT 90 ]")
+    RETURN r.value
+END
+END

@@ -378,7 +378,7 @@ async function runTool(
 
   try {
     if (wantAst) {
-      const dump = dumpAst(id, hostSrc);
+      const dump = await dumpAst(id, hostSrc);
       const text = JSON.stringify(dump, null, 2) + "\n";
       if (o.output) {
         const err = writeOut(host, o.output, text);
@@ -388,7 +388,7 @@ async function runTool(
       return pack(result, o.output ? `wrote ${o.output}\n` : text, "", EXIT_OK);
     }
     if (wantWat) {
-      const wat = emitWat(id, hostSrc);
+      const wat = await emitWat(id, hostSrc);
       if (o.output) {
         const err = writeOut(host, o.output, wat);
         if (err) return { code: EXIT_USAGE, stdout: "", stderr: `${bin}: ${err}\n` };
@@ -402,7 +402,7 @@ async function runTool(
       return pack(result, o.output ? `wrote ${o.output}\n` : wat, "", EXIT_OK);
     }
     if (wantC) {
-      const c = emitLoweredC(id, hostSrc);
+      const c = await emitLoweredC(id, hostSrc);
       if (o.output) {
         const err = writeOut(host, o.output, c);
         if (err) return { code: EXIT_USAGE, stdout: "", stderr: `${bin}: ${err}\n` };

@@ -79,7 +79,7 @@ STANDARD GREEN is a named issuing-body extract. CORE GREEN is a homemade set unt
 | bin | language | suite | gap | WASM | host |
 |---|---|---|---|---|---|
 | panc | C | WG14 N1570 + c-testsuite single-exec 104 | Full gcc torture / libgcc | yes | cc |
-| pancpp | cpp (preprocessor) | N1570 translation phases 1–4 via CPP() | full gcc.dg/cpp | yes | cc |
+| pancpp | cpp (preprocessor) | N1570 translation phases 1–4 via ppCpp in preprocess.pni | full gcc.dg/cpp | yes | cc |
 | pancxx | C++ | WG21 N4296 + g++.dg/expr named extract 5 | Full libstdc++ / gcc torture | yes | c++ |
 | panpy | Python | CPython 3.12 Lib/test language extract 68 | Full CPython Lib/test (unittest) | — | python3 |
 | panjs | ECMAScript | ECMA-262 + Test262 language extract 13 | built-ins, async, modules | — | — |
@@ -182,7 +182,7 @@ The language itself. Browser runs the integer core. Node self-host is a fixed po
 
 - suite: Stage-0 integer FUNCTION/IF/RETURN/PRINT
 - gap: browser is a subset of the Node host parser
-- module: src/panini/lexer.pni + parser.pni
+- module: src/panini/frontends/panini.pni
 - usage: `panpni program.pni`
 - WASM: no
 - host: no
@@ -194,7 +194,7 @@ The language itself. Browser runs the integer core. Node self-host is a fixed po
 
 ### panc — C
 
-ISO C11 subset. Frozen lexer in PANINI. Lowering and heap eval are host-speed (same slot as CINTERP). This is the kernel compiler path — the host C the rest lower into.
+ISO C11 subset. Lexer, preprocessor (preprocess.pni), parser and evaluator are PANINI. This is the kernel compiler path — the C the rest lower into.
 
 - suite: WG14 N1570 + c-testsuite single-exec 104
 - gap: Full gcc torture / libgcc
@@ -208,7 +208,7 @@ ISO C11 subset. Frozen lexer in PANINI. Lowering and heap eval are host-speed (s
 
 ### pancxx — C++
 
-cpp.pni is frozen. Work is in cpplower.js. Named extract: enum1.C run + four dg-error files. Not libstdc++.
+cpp.pni lexes. cppToC in to_c.pni lowers bool/class/namespace, then run_c. Named extract: enum1.C run + four dg-error files. Not libstdc++.
 
 - suite: WG21 N4296 + g++.dg/expr named extract 5
 - gap: Full libstdc++ / gcc torture
@@ -338,9 +338,9 @@ Shaili बाण. STANDARD GREEN on operator_test.dart i1/i2 integer extract.
 
 The preprocessor the kernel and gurucc already use. #define (object and function-like), #ifdef / #ifndef / #if / #else / #endif, #undef, stringizing, ##. Kernel .c files are cpp before cc.
 
-- suite: N1570 translation phases 1–4 via CPP()
+- suite: N1570 translation phases 1–4 via ppCpp in preprocess.pni
 - gap: full gcc.dg/cpp
-- module: runtime/ccpp.js
+- module: src/panini/frontends/cppp.pni
 - usage: `pancpp program.c`
 - WASM: C extract backend (integer subset)
 - host: cc
@@ -382,7 +382,7 @@ Kconfig is how the kernel is configured. Tokens: config, menuconfig, bool, trist
 
 - suite: Linux Kconfig language named extract (config/bool/default)
 - gap: scripts/kconfig (conf, mconf, nconf)
-- module: runtime extras (browser)
+- module: src/panini/frontends/kconfig.pni
 - usage: `pankconfig program.kconfig`
 - WASM: no
 - host: no
@@ -396,7 +396,7 @@ Linker scripts the kernel uses (vmlinux.lds.S class). Tokens: ENTRY, SECTIONS, M
 
 - suite: GNU ld script tokens (ENTRY / SECTIONS)
 - gap: actual relocation / ELF emission
-- module: runtime extras (browser)
+- module: src/panini/frontends/ld.pni
 - usage: `panld program.lds`
 - WASM: no
 - host: no
@@ -410,7 +410,7 @@ Tokens first. pattern → printf. POSIX lex / full flex suite is GAP.
 
 - suite: flex named extract (pattern { printf })
 - gap: POSIX lex / full flex
-- module: runtime extras (browser)
+- module: src/panini/frontends/lex.pni
 - usage: `panlex program.l`
 - WASM: no
 - host: no
@@ -424,7 +424,7 @@ Calculator named extract from HindiYACC host. Full POSIX yacc is GAP.
 
 - suite: yacc calculator named extract
 - gap: full POSIX yacc
-- module: runtime extras (browser)
+- module: src/panini/frontends/yacc.pni
 - usage: `panyacc program.y`
 - WASM: no
 - host: no
@@ -436,7 +436,7 @@ Calculator named extract from HindiYACC host. Full POSIX yacc is GAP.
 
 ### panpy — Python
 
-Frozen PANINI frontend. STANDARD GREEN on self-contained CPython asserts. The workbench runs a host-speed def-main subset; Node uses python.pni.
+Frozen PANINI frontend. STANDARD GREEN on self-contained CPython asserts. Lexer, parser and evaluator are python.pni.
 
 - suite: CPython 3.12 Lib/test language extract 68
 - gap: Full CPython Lib/test (unittest)
@@ -722,7 +722,7 @@ Turtle integer extract. Hindi primitives (आगे, दाएँ) sit on the sa
 
 - suite: UCBLogo named extract (REPEAT / FORWARD / RIGHT)
 - gap: full UCBLogo suite
-- module: runtime extras (browser)
+- module: src/panini/frontends/logo.pni
 - usage: `panlogo program.logo`
 - WASM: no
 - host: no
@@ -752,7 +752,7 @@ Low-hanging fruit: Lisp cousin. define, lambda, if, arithmetic. R5RS/R7RS full s
 
 - suite: R5RS integer/define/lambda named extract
 - gap: R5RS/R7RS suite skip=0
-- module: src/panini/frontends/application.pni (cousin of lisp.pni)
+- module: src/panini/frontends/scheme.pni
 - usage: `panscm program.scm`
 - WASM: no
 - host: no
@@ -766,7 +766,7 @@ Low-hanging fruit. Stack machine: +, DUP, SWAP, DROP, ., colon definitions. gfor
 
 - suite: ANS Forth integer named extract
 - gap: gforth tests skip=0
-- module: src/panini/frontends/application.pni
+- module: src/panini/frontends/forth.pni
 - usage: `panforth program.fs`
 - WASM: no
 - host: no
@@ -780,7 +780,7 @@ Low-hanging fruit. let-bindings and integer expressions. ocaml testsuite GAP.
 
 - suite: OCaml integer let/print_int named extract
 - gap: ocaml testsuite skip=0
-- module: src/panini/frontends/application.pni
+- module: src/panini/frontends/ocaml.pni
 - usage: `panml program.ml`
 - WASM: no
 - host: no
@@ -794,7 +794,7 @@ Lisp cousin. Official Clojure test suite is not skip=0; CORE on the Scheme evalu
 
 - suite: Clojure-shaped list eval (Scheme cousin)
 - gap: official Clojure suite
-- module: src/panini/frontends/application.pni
+- module: src/panini/frontends/clojure.pni
 - usage: `panclj program.clj`
 - WASM: no
 - host: no

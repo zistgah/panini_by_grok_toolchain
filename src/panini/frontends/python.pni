@@ -1,0 +1,823 @@
+MODULE PANINI.Frontend.Python
+
+FUNCTION pyIsDigit(ch)
+    RETURN ch >= "0" AND ch <= "9"
+END
+
+FUNCTION pyIsAlpha(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+
+FUNCTION pyHexDigit(ch)
+    IF pyIsDigit(ch)
+        RETURN INT(ch)
+    END
+    IF ch == "a" OR ch == "A"
+        RETURN 10
+    END
+    IF ch == "b" OR ch == "B"
+        RETURN 11
+    END
+    IF ch == "c" OR ch == "C"
+        RETURN 12
+    END
+    IF ch == "d" OR ch == "D"
+        RETURN 13
+    END
+    IF ch == "e" OR ch == "E"
+        RETURN 14
+    END
+    IF ch == "f" OR ch == "F"
+        RETURN 15
+    END
+    RETURN -1
+END
+
+FUNCTION pyVal(raw)
+    n = LEN(raw)
+    IF n >= 2 AND raw[0] == "0" AND (raw[1] == "x" OR raw[1] == "X")
+        v = 0
+        k = 2
+        WHILE k < n
+            v = v * 16 + pyHexDigit(raw[k])
+            k = k + 1
+        END
+        RETURN v
+    END
+    IF n >= 2 AND raw[0] == "0" AND (raw[1] == "o" OR raw[1] == "O")
+        v = 0
+        k = 2
+        WHILE k < n
+            v = v * 8 + pyHexDigit(raw[k])
+            k = k + 1
+        END
+        RETURN v
+    END
+    IF n >= 2 AND raw[0] == "0" AND (raw[1] == "b" OR raw[1] == "B")
+        v = 0
+        k = 2
+        WHILE k < n
+            v = v * 2 + pyHexDigit(raw[k])
+            k = k + 1
+        END
+        RETURN v
+    END
+    v = 0
+    scale = 1
+    frac = 0
+    k = 0
+    WHILE k < n
+        ch = raw[k]
+        IF ch == "."
+            frac = 1
+        ELSE
+            IF pyIsDigit(ch)
+                IF frac == 0
+                    v = v * 10 + INT(ch)
+                ELSE
+                    scale = scale * 10
+                    v = v + INT(ch) / scale
+                END
+            END
+        END
+        k = k + 1
+    END
+    RETURN v
+END
+
+FUNCTION pyTok(kind, value)
+    RETURN {kind: kind, value: value}
+END
+
+FUNCTION pyLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSE
+            IF ch == "#"
+                WHILE i < n AND source[i] != NEWLINE()
+                    i = i + 1
+                END
+            ELSE
+                IF ch == QUOTE() OR ch == "'"
+                    q = ch
+                    i = i + 1
+                    raw = ""
+                    WHILE i < n AND source[i] != q
+                        raw = raw + source[i]
+                        i = i + 1
+                    END
+                    IF i < n
+                        i = i + 1
+                    END
+                    APPEND(tokens, pyTok("STR", raw))
+                ELSE
+                    IF pyIsDigit(ch)
+                        raw = ""
+                        IF ch == "0" AND i + 1 < n
+                            nx = source[i + 1]
+                            IF nx == "x" OR nx == "X" OR nx == "o" OR nx == "O" OR nx == "b" OR nx == "B"
+                                raw = ch + nx
+                                i = i + 2
+                                WHILE i < n AND pyHexDigit(source[i]) >= 0
+                                    raw = raw + source[i]
+                                    i = i + 1
+                                END
+                                APPEND(tokens, pyTok("NUM", raw))
+                            ELSE
+                                WHILE i < n AND (pyIsDigit(source[i]) OR source[i] == ".")
+                                    raw = raw + source[i]
+                                    i = i + 1
+                                END
+                                APPEND(tokens, pyTok("NUM", raw))
+                            END
+                        ELSE
+                            WHILE i < n AND (pyIsDigit(source[i]) OR source[i] == ".")
+                                raw = raw + source[i]
+                                i = i + 1
+                            END
+                            APPEND(tokens, pyTok("NUM", raw))
+                        END
+                    ELSE
+                        IF pyIsAlpha(ch)
+                            raw = ""
+                            WHILE i < n AND (pyIsAlpha(source[i]) OR pyIsDigit(source[i]))
+                                raw = raw + source[i]
+                                i = i + 1
+                            END
+                            kind = "IDENT"
+                            IF raw == "def" OR raw == "return" OR raw == "print" OR raw == "if" OR raw == "else" OR raw == "elif" OR raw == "while" OR raw == "True" OR raw == "False" OR raw == "None" OR raw == "and" OR raw == "or" OR raw == "not" OR raw == "for" OR raw == "in"
+                                kind = "KW"
+                            END
+                            APPEND(tokens, pyTok(kind, raw))
+                        ELSE
+                            two = ""
+                            IF i + 1 < n
+                                two = ch + source[i + 1]
+                            END
+                            IF two == "==" OR two == "!=" OR two == "<=" OR two == ">=" OR two == "**" OR two == "//"
+                                APPEND(tokens, pyTok("OP", two))
+                                i = i + 2
+                            ELSE
+                                APPEND(tokens, pyTok("OP", ch))
+                                i = i + 1
+                            END
+                        END
+                    END
+                END
+            END
+        END
+    END
+    APPEND(tokens, pyTok("EOF", ""))
+    RETURN tokens
+END
+
+FUNCTION pyNew(tokens)
+    RETURN {tokens: tokens, i: 0}
+END
+
+FUNCTION pyPeek(st)
+    IF st.i >= LEN(st.tokens)
+        RETURN pyTok("EOF", "")
+    END
+    RETURN st.tokens[st.i]
+END
+
+FUNCTION pyEat(st)
+    t = pyPeek(st)
+    st.i = st.i + 1
+    RETURN t
+END
+
+FUNCTION pyParseAtom(st)
+    t = pyPeek(st)
+    IF t.kind == "NUM"
+        pyEat(st)
+        RETURN {op: "const", value: pyVal(t.value)}
+    END
+    IF t.kind == "STR"
+        pyEat(st)
+        RETURN {op: "const", value: t.value}
+    END
+    IF t.kind == "KW" AND t.value == "True"
+        pyEat(st)
+        RETURN {op: "const", value: 1}
+    END
+    IF t.kind == "KW" AND t.value == "False"
+        pyEat(st)
+        RETURN {op: "const", value: 0}
+    END
+    IF t.kind == "KW" AND t.value == "None"
+        pyEat(st)
+        RETURN {op: "const", value: 0}
+    END
+    IF t.kind == "IDENT" OR (t.kind == "KW" AND t.value == "print")
+        pyEat(st)
+        name = t.value
+        IF pyPeek(st).value == "("
+            pyEat(st)
+            args = []
+            WHILE pyPeek(st).value != ")" AND pyPeek(st).kind != "EOF"
+                APPEND(args, pyParseExpr(st))
+                IF pyPeek(st).value == ","
+                    pyEat(st)
+                END
+            END
+            IF pyPeek(st).value == ")"
+                pyEat(st)
+            END
+            RETURN {op: "call", name: name, args: args}
+        END
+        RETURN {op: "load", name: name}
+    END
+    IF t.value == "["
+        RETURN pyParseList(st)
+    END
+    IF t.value == "("
+        pyEat(st)
+        e = pyParseExpr(st)
+        IF pyPeek(st).value == ")"
+            pyEat(st)
+        END
+        RETURN e
+    END
+    pyEat(st)
+    RETURN {op: "const", value: 0}
+END
+
+FUNCTION pyParseList(st)
+    pyEat(st)
+    els = []
+    WHILE pyPeek(st).value != "]" AND pyPeek(st).kind != "EOF"
+        APPEND(els, pyParseExpr(st))
+        IF pyPeek(st).value == ","
+            pyEat(st)
+        END
+    END
+    IF pyPeek(st).value == "]"
+        pyEat(st)
+    END
+    RETURN {op: "list", elements: els}
+END
+
+FUNCTION pyParsePower(st)
+    left = pyParseAtom(st)
+    IF pyPeek(st).value == "**"
+        pyEat(st)
+        RETURN {op: "bin", operator: "**", left: left, right: pyParseUnary(st)}
+    END
+    RETURN left
+END
+
+FUNCTION pyParseUnary(st)
+    t = pyPeek(st)
+    IF t.value == "+" OR t.value == "-" OR t.value == "~"
+        op = pyEat(st).value
+        RETURN {op: "un", operator: op, arg: pyParseUnary(st)}
+    END
+    RETURN pyParsePower(st)
+END
+
+FUNCTION pyParseMul(st)
+    left = pyParseUnary(st)
+    WHILE pyPeek(st).value == "*" OR pyPeek(st).value == "/" OR pyPeek(st).value == "%" OR pyPeek(st).value == "//"
+        op = pyEat(st).value
+        left = {op: "bin", operator: op, left: left, right: pyParseUnary(st)}
+    END
+    RETURN left
+END
+
+
+FUNCTION pyParseAdd(st)
+    left = pyParseMul(st)
+    WHILE pyPeek(st).value == "+" OR pyPeek(st).value == "-"
+        op = pyEat(st).value
+        left = {op: "bin", operator: op, left: left, right: pyParseMul(st)}
+    END
+    RETURN left
+END
+
+FUNCTION pyParseBitAnd(st)
+    left = pyParseAdd(st)
+    WHILE pyPeek(st).value == "&"
+        pyEat(st)
+        left = {op: "bin", operator: "&", left: left, right: pyParseAdd(st)}
+    END
+    RETURN left
+END
+
+FUNCTION pyParseBitXor(st)
+    left = pyParseBitAnd(st)
+    WHILE pyPeek(st).value == "^"
+        pyEat(st)
+        left = {op: "bin", operator: "^", left: left, right: pyParseBitAnd(st)}
+    END
+    RETURN left
+END
+
+FUNCTION pyParseBitOr(st)
+    left = pyParseBitXor(st)
+    WHILE pyPeek(st).value == "|"
+        pyEat(st)
+        left = {op: "bin", operator: "|", left: left, right: pyParseBitXor(st)}
+    END
+    RETURN left
+END
+
+FUNCTION pyParseCmp(st)
+    left = pyParseBitOr(st)
+    v = pyPeek(st).value
+    IF v == "==" OR v == "!=" OR v == "<" OR v == ">" OR v == "<=" OR v == ">="
+        op = pyEat(st).value
+        RETURN {op: "bin", operator: op, left: left, right: pyParseBitOr(st)}
+    END
+    RETURN left
+END
+
+
+FUNCTION pyParseNot(st)
+    IF pyPeek(st).kind == "KW" AND pyPeek(st).value == "not"
+        pyEat(st)
+        RETURN {op: "un", operator: "not", arg: pyParseNot(st)}
+    END
+    RETURN pyParseCmp(st)
+END
+
+FUNCTION pyParseAnd(st)
+    left = pyParseNot(st)
+    WHILE pyPeek(st).kind == "KW" AND pyPeek(st).value == "and"
+        pyEat(st)
+        left = {op: "bin", operator: "and", left: left, right: pyParseNot(st)}
+    END
+    RETURN left
+END
+
+FUNCTION pyParseExpr(st)
+    left = pyParseAnd(st)
+    WHILE pyPeek(st).kind == "KW" AND pyPeek(st).value == "or"
+        pyEat(st)
+        left = {op: "bin", operator: "or", left: left, right: pyParseAnd(st)}
+    END
+    IF pyPeek(st).kind == "KW" AND pyPeek(st).value == "if"
+        pyEat(st)
+        cond = pyParseExpr(st)
+        el = {op: "const", value: 0}
+        IF pyPeek(st).kind == "KW" AND pyPeek(st).value == "else"
+            pyEat(st)
+            el = pyParseExpr(st)
+        END
+        RETURN {op: "ife", then: left, cond: cond, els: el}
+    END
+    RETURN left
+END
+
+
+FUNCTION pyParseStmt(st)
+    t = pyPeek(st)
+    IF t.kind == "KW" AND t.value == "def"
+        pyEat(st)
+        name = pyEat(st).value
+        IF pyPeek(st).value == "("
+            pyEat(st)
+        END
+        params = []
+        WHILE pyPeek(st).value != ")" AND pyPeek(st).kind != "EOF"
+            IF pyPeek(st).kind == "IDENT"
+                APPEND(params, pyEat(st).value)
+            ELSE
+                pyEat(st)
+            END
+            IF pyPeek(st).value == ","
+                pyEat(st)
+            END
+        END
+        IF pyPeek(st).value == ")"
+            pyEat(st)
+        END
+        IF pyPeek(st).value == ":"
+            pyEat(st)
+        END
+        body = []
+        WHILE pyPeek(st).kind != "EOF"
+            IF pyPeek(st).kind == "KW" AND pyPeek(st).value == "def"
+                BREAK
+            END
+            APPEND(body, pyParseStmt(st))
+        END
+        RETURN {op: "def", name: name, params: params, body: body}
+    END
+    IF t.kind == "KW" AND t.value == "return"
+        pyEat(st)
+        RETURN {op: "return", arg: pyParseExpr(st)}
+    END
+    IF t.kind == "KW" AND t.value == "if"
+        pyEat(st)
+        cond = pyParseExpr(st)
+        IF pyPeek(st).value == ":"
+            pyEat(st)
+        END
+        then = pyParseStmt(st)
+        el = {op: "nop"}
+        IF pyPeek(st).kind == "KW" AND pyPeek(st).value == "else"
+            pyEat(st)
+            IF pyPeek(st).value == ":"
+                pyEat(st)
+            END
+            el = pyParseStmt(st)
+        END
+        RETURN {op: "if", cond: cond, then: then, els: el}
+    END
+    IF t.kind == "KW" AND t.value == "while"
+        pyEat(st)
+        cond = pyParseExpr(st)
+        IF pyPeek(st).value == ":"
+            pyEat(st)
+        END
+        RETURN {op: "while", cond: cond, body: pyParseStmt(st)}
+    END
+    IF t.kind == "IDENT"
+        nxti = st.i + 1
+        IF nxti < LEN(st.tokens) AND st.tokens[nxti].value == "="
+            name = pyEat(st).value
+            pyEat(st)
+            RETURN {op: "assign", name: name, value: pyParseExpr(st)}
+        END
+    END
+    RETURN {op: "expr", value: pyParseExpr(st)}
+END
+
+FUNCTION pyParse(source)
+    tokens = pyLex(source)
+    st = pyNew(tokens)
+    body = []
+    WHILE pyPeek(st).kind != "EOF"
+        APPEND(body, pyParseStmt(st))
+    END
+    RETURN {op: "program", body: body, token_count: LEN(tokens), frontend: "python"}
+END
+
+FUNCTION pyLook(env, name)
+    IF env == NULL
+        RETURN NULL
+    END
+    v = env[name]
+    IF v != NULL
+        RETURN v
+    END
+    RETURN pyLook(env.outer, name)
+END
+
+FUNCTION pyBitAnd(a, b)
+    r = 0
+    p = 1
+    x = a
+    y = b
+    k = 0
+    WHILE k < 32
+        ax = x - INT(x / 2) * 2
+        ay = y - INT(y / 2) * 2
+        IF ax == 1 AND ay == 1
+            r = r + p
+        END
+        x = INT(x / 2)
+        y = INT(y / 2)
+        p = p * 2
+        k = k + 1
+    END
+    RETURN r
+END
+
+FUNCTION pyBitOr(a, b)
+    r = 0
+    p = 1
+    x = a
+    y = b
+    k = 0
+    WHILE k < 32
+        ax = x - INT(x / 2) * 2
+        ay = y - INT(y / 2) * 2
+        IF ax == 1 OR ay == 1
+            r = r + p
+        END
+        x = INT(x / 2)
+        y = INT(y / 2)
+        p = p * 2
+        k = k + 1
+    END
+    RETURN r
+END
+
+FUNCTION pyBitXor(a, b)
+    r = 0
+    p = 1
+    x = a
+    y = b
+    k = 0
+    WHILE k < 32
+        ax = x - INT(x / 2) * 2
+        ay = y - INT(y / 2) * 2
+        IF ax != ay
+            r = r + p
+        END
+        x = INT(x / 2)
+        y = INT(y / 2)
+        p = p * 2
+        k = k + 1
+    END
+    RETURN r
+END
+
+
+FUNCTION pyEvalExpr(e, env)
+    IF e.op == "const"
+        RETURN e.value
+    END
+    IF e.op == "ife"
+        c = pyEvalExpr(e.cond, env)
+        IF c
+            RETURN pyEvalExpr(e.then, env)
+        END
+        RETURN pyEvalExpr(e.els, env)
+    END
+    IF e.op == "load"
+        RETURN pyLook(env, e.name)
+    END
+    IF e.op == "bin"
+        l = pyEvalExpr(e.left, env)
+        r = pyEvalExpr(e.right, env)
+        IF e.operator == "+"
+            RETURN l + r
+        END
+        IF e.operator == "-"
+            RETURN l - r
+        END
+        IF e.operator == "*"
+            RETURN l * r
+        END
+        IF e.operator == "%"
+            RETURN l - INT(l / r) * r
+        END
+        IF e.operator == "//"
+            q = l / r
+            IF q < 0
+                RETURN 0 - INT(0 - q)
+            END
+            RETURN INT(q)
+        END
+        IF e.operator == "**"
+            rpow = 1
+            pi = 0
+            WHILE pi < r
+                rpow = rpow * l
+                pi = pi + 1
+            END
+            RETURN rpow
+        END
+        IF e.operator == "&"
+            RETURN pyBitAnd(l, r)
+        END
+        IF e.operator == "|"
+            RETURN pyBitOr(l, r)
+        END
+        IF e.operator == "^"
+            RETURN pyBitXor(l, r)
+        END
+        IF e.operator == "=="
+            IF l == r
+                RETURN 1
+            END
+            RETURN 0
+        END
+        IF e.operator == "!="
+            IF l == r
+                RETURN 0
+            END
+            RETURN 1
+        END
+        IF e.operator == "<"
+            IF l < r
+                RETURN 1
+            END
+            RETURN 0
+        END
+        IF e.operator == ">"
+            IF l > r
+                RETURN 1
+            END
+            RETURN 0
+        END
+        IF e.operator == "<="
+            IF l < r OR l == r
+                RETURN 1
+            END
+            RETURN 0
+        END
+        IF e.operator == ">="
+            IF l > r OR l == r
+                RETURN 1
+            END
+            RETURN 0
+        END
+        IF e.operator == "and"
+            IF l
+                RETURN r
+            END
+            RETURN l
+        END
+        IF e.operator == "or"
+            IF l
+                RETURN l
+            END
+            RETURN r
+        END
+        RETURN l / r
+    END
+    IF e.op == "un"
+        v = pyEvalExpr(e.arg, env)
+        IF e.operator == "not"
+            IF v
+                RETURN 0
+            END
+            RETURN 1
+        END
+        IF e.operator == "+"
+            RETURN v
+        END
+        IF e.operator == "-"
+            RETURN 0 - v
+        END
+        IF e.operator == "~"
+            RETURN 0 - (v + 1)
+        END
+        RETURN v
+    END
+    IF e.op == "list"
+        out = []
+        li = 0
+        WHILE li < LEN(e.elements)
+            APPEND(out, pyEvalExpr(e.elements[li], env))
+            li = li + 1
+        END
+        RETURN out
+    END
+    IF e.op == "call"
+        IF e.name == "tensor"
+            RETURN TENSOR(pyEvalExpr(e.args[0], env))
+        END
+        IF e.name == "matmul"
+            RETURN MATMUL(pyEvalExpr(e.args[0], env), pyEvalExpr(e.args[1], env))
+        END
+        IF e.name == "print"
+            v = 0
+            IF LEN(e.args) > 0
+                v = pyEvalExpr(e.args[0], env)
+            END
+            PRINT v
+            RETURN v
+        END
+        fn = pyLook(env, e.name)
+        local = {outer: env}
+        j = 0
+        WHILE j < LEN(fn.params)
+            local[fn.params[j]] = pyEvalExpr(e.args[j], env)
+            j = j + 1
+        END
+        RETURN pyEvalBlock(fn.body, local)
+    END
+    RETURN 0
+END
+
+FUNCTION pyEvalBlock(stmts, env)
+    last = 0
+    k = 0
+    WHILE k < LEN(stmts)
+        s = stmts[k]
+        IF s.op == "def"
+            env[s.name] = s
+        ELSEIF s.op == "assign"
+            env[s.name] = pyEvalExpr(s.value, env)
+        ELSEIF s.op == "return"
+            RETURN pyEvalExpr(s.arg, env)
+        ELSEIF s.op == "if"
+            c = pyEvalExpr(s.cond, env)
+            branch = s.els
+            IF c
+                branch = s.then
+            END
+            IF branch.op == "return"
+                RETURN pyEvalExpr(branch.arg, env)
+            END
+            last = pyEvalBlock([branch], env)
+        ELSEIF s.op == "while"
+            WHILE pyEvalExpr(s.cond, env)
+                last = pyEvalBlock([s.body], env)
+            END
+        ELSEIF s.op == "expr"
+            last = pyEvalExpr(s.value, env)
+        END
+        k = k + 1
+    END
+    RETURN last
+END
+
+FUNCTION run_python(source)
+    ast = pyParse(source)
+    env = {}
+    value = pyEvalBlock(ast.body, env)
+    mainfn = env["main"]
+    IF mainfn != NULL
+        value = pyEvalBlock(mainfn.body, env)
+    END
+    RETURN {ok: TRUE, ast: ast, value: value, frontend: "PANINI.Frontend.Python"}
+END
+
+FUNCTION pyCExpr(e)
+    IF e == NULL
+        RETURN "0"
+    END
+    IF e.op == "const"
+        RETURN STR(INT(e.value))
+    END
+    IF e.op == "load"
+        RETURN e.name
+    END
+    IF e.op == "bin"
+        RETURN "(" + pyCExpr(e.left) + " " + e.operator + " " + pyCExpr(e.right) + ")"
+    END
+    IF e.op == "call"
+        args = ""
+        k = 0
+        WHILE k < LEN(e.args)
+            IF k > 0
+                args = args + ", "
+            END
+            args = args + pyCExpr(e.args[k])
+            k = k + 1
+        END
+        RETURN e.name + "(" + args + ")"
+    END
+    RETURN "0"
+END
+
+FUNCTION pyCStmt(s)
+    IF s.op == "return"
+        RETURN "  return " + pyCExpr(s.arg) + ";" + NEWLINE()
+    END
+    IF s.op == "assign"
+        RETURN "  int " + s.name + "; " + s.name + " = " + pyCExpr(s.value) + ";" + NEWLINE()
+    END
+    IF s.op == "if"
+        RETURN "  if (" + pyCExpr(s.cond) + ") {" + NEWLINE() + pyCStmt(s.then) + "  } else {" + NEWLINE() + pyCStmt(s.els) + "  }" + NEWLINE()
+    END
+    IF s.op == "while"
+        RETURN "  while (" + pyCExpr(s.cond) + ") {" + NEWLINE() + pyCStmt(s.body) + "  }" + NEWLINE()
+    END
+    IF s.op == "nop"
+        RETURN ""
+    END
+    IF s.op == "expr"
+        RETURN "  " + pyCExpr(s.value) + ";" + NEWLINE()
+    END
+    RETURN ""
+END
+
+FUNCTION pyToC(source)
+    ast = pyParse(source)
+    o = ""
+    k = 0
+    WHILE k < LEN(ast.body)
+        s = ast.body[k]
+        IF s.op == "def"
+            ps = ""
+            j = 0
+            WHILE j < LEN(s.params)
+                IF j > 0
+                    ps = ps + ", "
+                END
+                ps = ps + "int " + s.params[j]
+                j = j + 1
+            END
+            o = o + "int " + s.name + "(" + ps + ")" + NEWLINE() + "{" + NEWLINE()
+            j = 0
+            WHILE j < LEN(s.body)
+                o = o + pyCStmt(s.body[j])
+                j = j + 1
+            END
+            o = o + "  return 0;" + NEWLINE() + "}" + NEWLINE()
+        END
+        k = k + 1
+    END
+    RETURN o
+END
+
+FUNCTION main()
+    r = run_python("print(40+2)")
+    PRINT r.value
+    RETURN r.value
+END
+
+END

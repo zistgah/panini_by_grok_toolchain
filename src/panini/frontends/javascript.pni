@@ -1,0 +1,460 @@
+/* PANINI.Frontend.JavaScript — integer ECMAScript extract.
+ * var / if / throw / arithmetic. Written in PANINI. Not V8.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.JavaScript
+
+FUNCTION jsIsIdentStart(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_" OR ch == "$"
+END
+FUNCTION jsIsIdentChar(ch)
+    RETURN jsIsIdentStart(ch) OR (ch >= "0" AND ch <= "9")
+END
+FUNCTION jsTok(kind, value)
+    RETURN {kind: kind, value: value}
+END
+
+FUNCTION jsLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    two = ["===", "!=="]
+    ops = ["==", "!=", "<=", ">=", "&&", "||", "++", "--"]
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSEIF ch == "/" AND i + 1 < n AND source[i + 1] == "/"
+            WHILE i < n AND source[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSEIF ch >= "0" AND ch <= "9"
+            raw = ""
+            WHILE i < n AND source[i] >= "0" AND source[i] <= "9"
+                raw = raw + source[i]
+                i = i + 1
+            END
+            APPEND(tokens, jsTok("NUM", INT(raw)))
+        ELSEIF jsIsIdentStart(ch)
+            raw = ""
+            WHILE i < n AND jsIsIdentChar(source[i])
+                raw = raw + source[i]
+                i = i + 1
+            END
+            APPEND(tokens, jsTok("ID", raw))
+        ELSE
+            hit = ""
+            IF i + 3 <= n
+                t3 = SLICE(source, i, i + 3)
+                IF t3 == "===" OR t3 == "!=="
+                    hit = t3
+                END
+            END
+            IF hit == "" AND i + 2 <= n
+                t2 = SLICE(source, i, i + 2)
+                IF t2 == "==" OR t2 == "!=" OR t2 == "<=" OR t2 == ">=" OR t2 == "&&" OR t2 == "||"
+                    hit = t2
+                END
+            END
+            IF hit != ""
+                APPEND(tokens, jsTok("OP", hit))
+                i = i + LEN(hit)
+            ELSE
+                APPEND(tokens, jsTok("OP", ch))
+                i = i + 1
+            END
+        END
+    END
+    APPEND(tokens, jsTok("EOF", ""))
+    RETURN tokens
+END
+
+FUNCTION jsNew(tokens)
+    RETURN {tokens: tokens, i: 0}
+END
+FUNCTION jsPeek(st)
+    IF st.i >= LEN(st.tokens)
+        RETURN jsTok("EOF", "")
+    END
+    RETURN st.tokens[st.i]
+END
+FUNCTION jsEat(st)
+    t = jsPeek(st)
+    st.i = st.i + 1
+    RETURN t
+END
+
+FUNCTION jsParseExpr(st)
+    RETURN jsParseOr(st)
+END
+FUNCTION jsParseOr(st)
+    left = jsParseAnd(st)
+    WHILE jsPeek(st).value == "||"
+        jsEat(st)
+        r = jsParseAnd(st)
+        left = {op: "or", left: left, right: r}
+    END
+    RETURN left
+END
+FUNCTION jsParseAnd(st)
+    left = jsParseEq(st)
+    WHILE jsPeek(st).value == "&&"
+        jsEat(st)
+        r = jsParseEq(st)
+        left = {op: "and", left: left, right: r}
+    END
+    RETURN left
+END
+FUNCTION jsParseEq(st)
+    left = jsParseRel(st)
+    v = jsPeek(st).value
+    WHILE v == "==" OR v == "!=" OR v == "===" OR v == "!=="
+        jsEat(st)
+        r = jsParseRel(st)
+        left = {op: "bin", operator: v, left: left, right: r}
+        v = jsPeek(st).value
+    END
+    RETURN left
+END
+FUNCTION jsParseRel(st)
+    left = jsParseAdd(st)
+    v = jsPeek(st).value
+    WHILE v == "<" OR v == ">" OR v == "<=" OR v == ">="
+        jsEat(st)
+        r = jsParseAdd(st)
+        left = {op: "bin", operator: v, left: left, right: r}
+        v = jsPeek(st).value
+    END
+    RETURN left
+END
+FUNCTION jsParseAdd(st)
+    left = jsParseMul(st)
+    v = jsPeek(st).value
+    WHILE v == "+" OR v == "-"
+        jsEat(st)
+        r = jsParseMul(st)
+        left = {op: "bin", operator: v, left: left, right: r}
+        v = jsPeek(st).value
+    END
+    RETURN left
+END
+FUNCTION jsParseMul(st)
+    left = jsParseUnary(st)
+    v = jsPeek(st).value
+    WHILE v == "*" OR v == "/" OR v == "%"
+        jsEat(st)
+        r = jsParseUnary(st)
+        left = {op: "bin", operator: v, left: left, right: r}
+        v = jsPeek(st).value
+    END
+    RETURN left
+END
+FUNCTION jsParseUnary(st)
+    v = jsPeek(st).value
+    IF v == "!" OR v == "-" OR v == "+"
+        jsEat(st)
+        RETURN {op: "un", operator: v, arg: jsParseUnary(st)}
+    END
+    RETURN jsParseAtom(st)
+END
+FUNCTION jsParseAtom(st)
+    t = jsPeek(st)
+    IF t.kind == "NUM"
+        jsEat(st)
+        RETURN {op: "const", value: t.value}
+    END
+    IF t.kind == "ID"
+        jsEat(st)
+        IF t.value == "true"
+            RETURN {op: "const", value: 1}
+        END
+        IF t.value == "false"
+            RETURN {op: "const", value: 0}
+        END
+        IF jsPeek(st).value == "("
+            jsEat(st)
+            args = []
+            WHILE jsPeek(st).value != ")" AND jsPeek(st).kind != "EOF"
+                APPEND(args, jsParseExpr(st))
+                IF jsPeek(st).value == ","
+                    jsEat(st)
+                END
+            END
+            IF jsPeek(st).value == ")"
+                jsEat(st)
+            END
+            RETURN {op: "call", name: t.value, args: args}
+        END
+        IF jsPeek(st).value == "."
+            jsEat(st)
+            jsEat(st)
+            RETURN {op: "load", name: t.value}
+        END
+        RETURN {op: "load", name: t.value}
+    END
+    IF t.value == "("
+        jsEat(st)
+        e = jsParseExpr(st)
+        IF jsPeek(st).value == ")"
+            jsEat(st)
+        END
+        RETURN e
+    END
+    jsEat(st)
+    RETURN {op: "const", value: 0}
+END
+
+FUNCTION jsParseStmt(st)
+    t = jsPeek(st)
+    IF t.kind == "ID" AND (t.value == "var" OR t.value == "let" OR t.value == "const")
+        jsEat(st)
+        name = jsEat(st).value
+        IF jsPeek(st).value == "="
+            jsEat(st)
+        END
+        e = jsParseExpr(st)
+        IF jsPeek(st).value == ";"
+            jsEat(st)
+        END
+        RETURN {op: "var", name: name, value: e}
+    END
+    IF t.kind == "ID" AND t.value == "if"
+        jsEat(st)
+        IF jsPeek(st).value == "("
+            jsEat(st)
+        END
+        c = jsParseExpr(st)
+        IF jsPeek(st).value == ")"
+            jsEat(st)
+        END
+        th = jsParseStmt(st)
+        el = {op: "nop"}
+        IF jsPeek(st).kind == "ID" AND jsPeek(st).value == "else"
+            jsEat(st)
+            el = jsParseStmt(st)
+        END
+        RETURN {op: "if", cond: c, then: th, els: el}
+    END
+    IF t.kind == "ID" AND t.value == "throw"
+        jsEat(st)
+        e = jsParseExpr(st)
+        IF jsPeek(st).value == ";"
+            jsEat(st)
+        END
+        RETURN {op: "throw", arg: e}
+    END
+    IF t.kind == "ID" AND t.value == "function"
+        jsEat(st)
+        name = jsEat(st).value
+        IF jsPeek(st).value == "("
+            jsEat(st)
+        END
+        params = []
+        WHILE jsPeek(st).value != ")" AND jsPeek(st).kind != "EOF"
+            IF jsPeek(st).kind == "ID"
+                APPEND(params, jsEat(st).value)
+            ELSE
+                jsEat(st)
+            END
+            IF jsPeek(st).value == ","
+                jsEat(st)
+            END
+        END
+        IF jsPeek(st).value == ")"
+            jsEat(st)
+        END
+        IF jsPeek(st).value == "{"
+            jsEat(st)
+        END
+        body = []
+        WHILE jsPeek(st).value != "}" AND jsPeek(st).kind != "EOF"
+            APPEND(body, jsParseStmt(st))
+        END
+        IF jsPeek(st).value == "}"
+            jsEat(st)
+        END
+        RETURN {op: "def", name: name, params: params, body: body}
+    END
+    IF t.kind == "ID" AND t.value == "return"
+        jsEat(st)
+        e = jsParseExpr(st)
+        IF jsPeek(st).value == ";"
+            jsEat(st)
+        END
+        RETURN {op: "return", arg: e}
+    END
+    IF t.value == "{"
+        jsEat(st)
+        body = []
+        WHILE jsPeek(st).value != "}" AND jsPeek(st).kind != "EOF"
+            APPEND(body, jsParseStmt(st))
+        END
+        IF jsPeek(st).value == "}"
+            jsEat(st)
+        END
+        RETURN {op: "block", body: body}
+    END
+    e = jsParseExpr(st)
+    IF jsPeek(st).value == ";"
+        jsEat(st)
+    END
+    RETURN {op: "expr", value: e}
+END
+
+FUNCTION jsEval(e, env)
+    IF e.op == "const"
+        RETURN e.value
+    END
+    IF e.op == "load"
+        IF HASKEY(env, e.name)
+            RETURN env[e.name]
+        END
+        RETURN 0
+    END
+    IF e.op == "un"
+        v = jsEval(e.arg, env)
+        IF e.operator == "!"
+            IF v
+                RETURN 0
+            END
+            RETURN 1
+        END
+        IF e.operator == "-"
+            RETURN 0 - v
+        END
+        RETURN v
+    END
+    IF e.op == "or"
+        l = jsEval(e.left, env)
+        IF l
+            RETURN l
+        END
+        RETURN jsEval(e.right, env)
+    END
+    IF e.op == "and"
+        l = jsEval(e.left, env)
+        IF l
+            RETURN jsEval(e.right, env)
+        END
+        RETURN 0
+    END
+    IF e.op == "bin"
+        l = jsEval(e.left, env)
+        r = jsEval(e.right, env)
+        IF e.operator == "+"
+            RETURN l + r
+        END
+        IF e.operator == "-"
+            RETURN l - r
+        END
+        IF e.operator == "*"
+            RETURN l * r
+        END
+        IF e.operator == "/"
+            RETURN l / r
+        END
+        IF e.operator == "%"
+            RETURN l % r
+        END
+        IF e.operator == "==" OR e.operator == "==="
+            RETURN l == r
+        END
+        IF e.operator == "!=" OR e.operator == "!=="
+            RETURN l != r
+        END
+        IF e.operator == "<"
+            RETURN l < r
+        END
+        IF e.operator == ">"
+            RETURN l > r
+        END
+        IF e.operator == "<="
+            RETURN l <= r
+        END
+        IF e.operator == ">="
+            RETURN l >= r
+        END
+    END
+    IF e.op == "call"
+        fn = env[e.name]
+        IF TYPEOF(fn) == "Map" AND fn.op == "def"
+            local = {}
+            j = 0
+            WHILE j < LEN(fn.params)
+                local[fn.params[j]] = jsEval(e.args[j], env)
+                j = j + 1
+            END
+            RETURN jsExecBlock(fn.body, local)
+        END
+        RETURN 0
+    END
+    RETURN 0
+END
+
+FUNCTION jsExec(s, env)
+    IF s.op == "var"
+        env[s.name] = jsEval(s.value, env)
+        RETURN 0
+    END
+    IF s.op == "if"
+        IF jsEval(s.cond, env)
+            RETURN jsExec(s.then, env)
+        END
+        RETURN jsExec(s.els, env)
+    END
+    IF s.op == "throw"
+        RETURN {ctrl: "throw", value: jsEval(s.arg, env)}
+    END
+    IF s.op == "def"
+        env[s.name] = s
+        RETURN 0
+    END
+    IF s.op == "return"
+        RETURN {ctrl: "return", value: jsEval(s.arg, env)}
+    END
+    IF s.op == "block"
+        RETURN jsExecBlock(s.body, env)
+    END
+    IF s.op == "expr"
+        RETURN jsEval(s.value, env)
+    END
+    RETURN 0
+END
+
+FUNCTION jsExecBlock(body, env)
+    last = 0
+    k = 0
+    WHILE k < LEN(body)
+        last = jsExec(body[k], env)
+        IF TYPEOF(last) == "Map" AND (last.ctrl == "throw" OR last.ctrl == "return")
+            RETURN last
+        END
+        k = k + 1
+    END
+    RETURN last
+END
+
+FUNCTION run_javascript(source)
+    tokens = jsLex(source)
+    st = jsNew(tokens)
+    body = []
+    WHILE jsPeek(st).kind != "EOF"
+        APPEND(body, jsParseStmt(st))
+    END
+    env = {}
+    last = jsExecBlock(body, env)
+    IF TYPEOF(last) == "Map" AND last.ctrl == "throw"
+        RETURN {ok: FALSE, error: STR(last.value), frontend: "PANINI.Frontend.JavaScript"}
+    END
+    value = last
+    IF TYPEOF(last) == "Map" AND last.ctrl == "return"
+        value = last.value
+    END
+    RETURN {ok: TRUE, value: value, frontend: "PANINI.Frontend.JavaScript", token_count: LEN(tokens)}
+END
+
+FUNCTION main()
+    r = run_javascript("var a = 40 + 2;")
+    RETURN r.value
+END
+END

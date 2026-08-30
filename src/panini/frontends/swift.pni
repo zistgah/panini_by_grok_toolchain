@@ -1,0 +1,22 @@
+/* Copyright (C) 1993-2026 Abhishek Choudhary
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Swift integer extract. swiftToC in to_c.pni, then run_c. Written in PANINI.
+ */
+MODULE PANINI.Frontend.Swift
+
+FUNCTION run_swift(source)
+    n = LEN(source)
+    lowered = swiftToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Swift"
+    r.lowered = lowered
+    r.bytes = n
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_swift("func add(a: Int, b: Int) -> Int {\n  return a + b\n}\nfunc main() -> Int {\n  let n = add(40, 2)\n  print(n)\n  return n\n}\n")
+    RETURN r.value
+END
+
+END

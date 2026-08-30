@@ -1,0 +1,441 @@
+/* PANINI.Frontend.Panini — integer FUNCTION / IF / RETURN / PRINT eval.
+ * Self-hosted subset. Stage-0 JS is the VM this runs on, not the frontend.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Panini
+
+FUNCTION pnIsIdentStart(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+FUNCTION pnIsIdentChar(ch)
+    RETURN pnIsIdentStart(ch) OR (ch >= "0" AND ch <= "9")
+END
+FUNCTION pnTok(kind, value)
+    RETURN {kind: kind, value: value}
+END
+
+FUNCTION pnLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    kw = {}
+    kw["FUNCTION"] = 1
+    kw["END"] = 1
+    kw["RETURN"] = 1
+    kw["IF"] = 1
+    kw["ELSE"] = 1
+    kw["WHILE"] = 1
+    kw["PRINT"] = 1
+    kw["MODULE"] = 1
+    kw["TRUE"] = 1
+    kw["FALSE"] = 1
+    kw["AND"] = 1
+    kw["OR"] = 1
+    kw["NOT"] = 1
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSEIF ch == "/" AND i + 1 < n AND source[i + 1] == "/"
+            WHILE i < n AND source[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSEIF ch >= "0" AND ch <= "9"
+            raw = ""
+            WHILE i < n AND source[i] >= "0" AND source[i] <= "9"
+                raw = raw + source[i]
+                i = i + 1
+            END
+            APPEND(tokens, pnTok("NUM", INT(raw)))
+        ELSEIF pnIsIdentStart(ch)
+            raw = ""
+            WHILE i < n AND pnIsIdentChar(source[i])
+                raw = raw + source[i]
+                i = i + 1
+            END
+            kind = "ID"
+            IF HASKEY(kw, raw)
+                kind = "KW"
+            END
+            APPEND(tokens, pnTok(kind, raw))
+        ELSE
+            IF i + 1 < n
+                two = SLICE(source, i, i + 2)
+                IF two == "->" OR two == "==" OR two == "!=" OR two == "<=" OR two == ">="
+                    APPEND(tokens, pnTok("OP", two))
+                    i = i + 2
+                ELSE
+                    APPEND(tokens, pnTok("OP", ch))
+                    i = i + 1
+                END
+            ELSE
+                APPEND(tokens, pnTok("OP", ch))
+                i = i + 1
+            END
+        END
+    END
+    APPEND(tokens, pnTok("EOF", ""))
+    RETURN tokens
+END
+
+FUNCTION pnNew(tokens)
+    RETURN {tokens: tokens, i: 0}
+END
+FUNCTION pnPeek(st)
+    IF st.i >= LEN(st.tokens)
+        RETURN pnTok("EOF", "")
+    END
+    RETURN st.tokens[st.i]
+END
+FUNCTION pnEat(st)
+    t = pnPeek(st)
+    st.i = st.i + 1
+    RETURN t
+END
+
+FUNCTION pnParseExpr(st)
+    RETURN pnParseOr(st)
+END
+FUNCTION pnParseOr(st)
+    left = pnParseAnd(st)
+    WHILE pnPeek(st).value == "OR"
+        pnEat(st)
+        left = {op: "or", left: left, right: pnParseAnd(st)}
+    END
+    RETURN left
+END
+FUNCTION pnParseAnd(st)
+    left = pnParseCmp(st)
+    WHILE pnPeek(st).value == "AND"
+        pnEat(st)
+        left = {op: "and", left: left, right: pnParseCmp(st)}
+    END
+    RETURN left
+END
+FUNCTION pnParseCmp(st)
+    left = pnParseAdd(st)
+    v = pnPeek(st).value
+    WHILE v == "==" OR v == "!=" OR v == "<" OR v == ">" OR v == "<=" OR v == ">=" OR v == "="
+        pnEat(st)
+        left = {op: "bin", operator: v, left: left, right: pnParseAdd(st)}
+        v = pnPeek(st).value
+    END
+    RETURN left
+END
+FUNCTION pnParseAdd(st)
+    left = pnParseMul(st)
+    v = pnPeek(st).value
+    WHILE v == "+" OR v == "-"
+        pnEat(st)
+        left = {op: "bin", operator: v, left: left, right: pnParseMul(st)}
+        v = pnPeek(st).value
+    END
+    RETURN left
+END
+FUNCTION pnParseMul(st)
+    left = pnParseAtom(st)
+    v = pnPeek(st).value
+    WHILE v == "*" OR v == "/" OR v == "%"
+        pnEat(st)
+        left = {op: "bin", operator: v, left: left, right: pnParseAtom(st)}
+        v = pnPeek(st).value
+    END
+    RETURN left
+END
+FUNCTION pnParseAtom(st)
+    t = pnPeek(st)
+    IF t.kind == "NUM"
+        pnEat(st)
+        RETURN {op: "const", value: t.value}
+    END
+    IF t.value == "TRUE"
+        pnEat(st)
+        RETURN {op: "const", value: 1}
+    END
+    IF t.value == "FALSE"
+        pnEat(st)
+        RETURN {op: "const", value: 0}
+    END
+    IF t.value == "NOT"
+        pnEat(st)
+        RETURN {op: "un", operator: "NOT", arg: pnParseAtom(st)}
+    END
+    IF t.value == "("
+        pnEat(st)
+        e = pnParseExpr(st)
+        IF pnPeek(st).value == ")"
+            pnEat(st)
+        END
+        RETURN e
+    END
+    IF t.kind == "ID" OR t.kind == "KW"
+        pnEat(st)
+        IF pnPeek(st).value == "("
+            pnEat(st)
+            args = []
+            WHILE pnPeek(st).value != ")" AND pnPeek(st).kind != "EOF"
+                APPEND(args, pnParseExpr(st))
+                IF pnPeek(st).value == ","
+                    pnEat(st)
+                END
+            END
+            IF pnPeek(st).value == ")"
+                pnEat(st)
+            END
+            RETURN {op: "call", name: t.value, args: args}
+        END
+        RETURN {op: "load", name: t.value}
+    END
+    pnEat(st)
+    RETURN {op: "const", value: 0}
+END
+
+FUNCTION pnParseBlock(st)
+    body = []
+    WHILE pnPeek(st).value != "END" AND pnPeek(st).value != "ELSE" AND pnPeek(st).kind != "EOF"
+        APPEND(body, pnParseStmt(st))
+    END
+    RETURN body
+END
+
+FUNCTION pnParseStmt(st)
+    t = pnPeek(st)
+    IF t.value == "RETURN"
+        pnEat(st)
+        RETURN {op: "return", arg: pnParseExpr(st)}
+    END
+    IF t.value == "PRINT"
+        pnEat(st)
+        RETURN {op: "print", arg: pnParseExpr(st)}
+    END
+    IF t.value == "IF"
+        pnEat(st)
+        c = pnParseExpr(st)
+        th = pnParseBlock(st)
+        el = []
+        IF pnPeek(st).value == "ELSE"
+            pnEat(st)
+            el = pnParseBlock(st)
+        END
+        IF pnPeek(st).value == "END"
+            pnEat(st)
+        END
+        RETURN {op: "if", cond: c, then: th, els: el}
+    END
+    IF t.value == "WHILE"
+        pnEat(st)
+        c = pnParseExpr(st)
+        b = pnParseBlock(st)
+        IF pnPeek(st).value == "END"
+            pnEat(st)
+        END
+        RETURN {op: "while", cond: c, body: b}
+    END
+    IF t.value == "FUNCTION"
+        RETURN {op: "def", fn: pnParseFn(st)}
+    END
+    left = pnParseExpr(st)
+    IF pnPeek(st).value == "="
+        pnEat(st)
+        RETURN {op: "assign", target: left, value: pnParseExpr(st)}
+    END
+    RETURN {op: "expr", value: left}
+END
+
+FUNCTION pnParseFn(st)
+    pnEat(st)
+    name = pnEat(st).value
+    params = []
+    IF pnPeek(st).value == "("
+        pnEat(st)
+        WHILE pnPeek(st).value != ")" AND pnPeek(st).kind != "EOF"
+            t = pnEat(st)
+            IF t.kind == "ID"
+                APPEND(params, t.value)
+            END
+            IF pnPeek(st).value == ":"
+                pnEat(st)
+                pnEat(st)
+            END
+            IF pnPeek(st).value == ","
+                pnEat(st)
+            END
+        END
+        IF pnPeek(st).value == ")"
+            pnEat(st)
+        END
+    END
+    IF pnPeek(st).value == "->"
+        pnEat(st)
+        pnEat(st)
+    END
+    body = pnParseBlock(st)
+    IF pnPeek(st).value == "END"
+        pnEat(st)
+    END
+    RETURN {name: name, params: params, body: body}
+END
+
+FUNCTION pnEval(e, env)
+    IF e.op == "const"
+        RETURN e.value
+    END
+    IF e.op == "load"
+        IF HASKEY(env, e.name)
+            RETURN env[e.name]
+        END
+        IF env.parent != NULL
+            RETURN pnEval(e, env.parent)
+        END
+        RETURN 0
+    END
+    IF e.op == "un"
+        v = pnEval(e.arg, env)
+        IF v
+            RETURN 0
+        END
+        RETURN 1
+    END
+    IF e.op == "or"
+        l = pnEval(e.left, env)
+        IF l
+            RETURN l
+        END
+        RETURN pnEval(e.right, env)
+    END
+    IF e.op == "and"
+        l = pnEval(e.left, env)
+        IF l
+            RETURN pnEval(e.right, env)
+        END
+        RETURN 0
+    END
+    IF e.op == "bin"
+        l = pnEval(e.left, env)
+        r = pnEval(e.right, env)
+        IF e.operator == "+"
+            RETURN l + r
+        END
+        IF e.operator == "-"
+            RETURN l - r
+        END
+        IF e.operator == "*"
+            RETURN l * r
+        END
+        IF e.operator == "/"
+            RETURN l / r
+        END
+        IF e.operator == "%"
+            RETURN l % r
+        END
+        IF e.operator == "==" OR e.operator == "="
+            RETURN l == r
+        END
+        IF e.operator == "!="
+            RETURN l != r
+        END
+        IF e.operator == "<"
+            RETURN l < r
+        END
+        IF e.operator == ">"
+            RETURN l > r
+        END
+        IF e.operator == "<="
+            RETURN l <= r
+        END
+        IF e.operator == ">="
+            RETURN l >= r
+        END
+    END
+    IF e.op == "call"
+        fn = NULL
+        IF HASKEY(env, e.name)
+            fn = env[e.name]
+        ELSEIF env.parent != NULL AND HASKEY(env.parent, e.name)
+            fn = env.parent[e.name]
+        END
+        IF TYPEOF(fn) == "Map" AND fn.kind == "fn"
+            local = {parent: fn.env}
+            j = 0
+            WHILE j < LEN(fn.params)
+                local[fn.params[j]] = pnEval(e.args[j], env)
+                j = j + 1
+            END
+            RETURN pnExecBlock(fn.body, local)
+        END
+        RETURN 0
+    END
+    RETURN 0
+END
+
+FUNCTION pnExecBlock(body, env)
+    last = 0
+    k = 0
+    WHILE k < LEN(body)
+        s = body[k]
+        IF s.op == "def"
+            env[s.fn.name] = {kind: "fn", params: s.fn.params, body: s.fn.body, env: env}
+        ELSEIF s.op == "assign"
+            env[s.target.name] = pnEval(s.value, env)
+        ELSEIF s.op == "return"
+            RETURN pnEval(s.arg, env)
+        ELSEIF s.op == "print"
+            v = pnEval(s.arg, env)
+            PRINT v
+            last = v
+        ELSEIF s.op == "if"
+            branch = s.els
+            IF pnEval(s.cond, env)
+                branch = s.then
+            END
+            last = pnExecBlock(branch, env)
+        ELSEIF s.op == "while"
+            WHILE pnEval(s.cond, env)
+                last = pnExecBlock(s.body, env)
+            END
+        ELSEIF s.op == "expr"
+            last = pnEval(s.value, env)
+        END
+        k = k + 1
+    END
+    RETURN last
+END
+
+FUNCTION run_panini(source)
+    tokens = pnLex(source)
+    st = pnNew(tokens)
+    env = {parent: NULL}
+    WHILE pnPeek(st).kind != "EOF"
+        t = pnPeek(st)
+        IF t.value == "FUNCTION"
+            fn = pnParseFn(st)
+            env[fn.name] = {kind: "fn", params: fn.params, body: fn.body, env: env}
+        ELSEIF t.value == "MODULE"
+            pnEat(st)
+            WHILE pnPeek(st).value != "END" AND pnPeek(st).kind != "EOF"
+                IF pnPeek(st).value == "FUNCTION"
+                    fn = pnParseFn(st)
+                    env[fn.name] = {kind: "fn", params: fn.params, body: fn.body, env: env}
+                ELSE
+                    pnEat(st)
+                END
+            END
+            IF pnPeek(st).value == "END"
+                pnEat(st)
+            END
+        ELSE
+            pnEat(st)
+        END
+    END
+    value = 0
+    IF HASKEY(env, "main")
+        value = pnExecBlock(env["main"].body, env)
+    END
+    RETURN {ok: TRUE, value: value, frontend: "PANINI.Frontend.Panini", token_count: LEN(tokens)}
+END
+
+FUNCTION main()
+    r = run_panini("FUNCTION main()" + NEWLINE() + "    RETURN 42" + NEWLINE() + "END" + NEWLINE())
+    RETURN r.value
+END
+END

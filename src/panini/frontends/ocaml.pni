@@ -1,0 +1,12 @@
+/* PANINI.Frontend.OCaml — let integer extract via feRun.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.OCaml
+FUNCTION run_ocaml(source)
+    RETURN feRun(source, "PANINI.Frontend.OCaml")
+END
+FUNCTION main()
+    r = run_ocaml("let add a b = a + b")
+    RETURN r.value
+END
+END

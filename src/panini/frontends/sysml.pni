@@ -1,0 +1,12 @@
+/* PANINI.Frontend.SysML — constraint integer extract via feRun.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.SysML
+FUNCTION run_sysml(source)
+    RETURN feRun(source, "PANINI.Frontend.SysML")
+END
+FUNCTION main()
+    r = run_sysml("constraint def Add { 40 + 2 }")
+    RETURN r.value
+END
+END

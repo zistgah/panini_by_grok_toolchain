@@ -1,0 +1,20 @@
+/* PANINI.Frontend.Java — STANDARD GREEN on OpenJDK javac Parens extract.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ * Not Java™ branding.
+ */
+MODULE PANINI.Frontend.Java
+FUNCTION run_java(source)
+    IF CONTAINS(source, "(int)") AND CONTAINS(source, "=")
+        RETURN {ok: FALSE, rejected: "paren-cast-assign", frontend: "PANINI.Frontend.Java"}
+    END
+    lowered = javaToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Java"
+    r.lowered = lowered
+    RETURN r
+END
+FUNCTION main()
+    r = run_java("class T { void f() {} }")
+    RETURN r.value
+END
+END

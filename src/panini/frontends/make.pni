@@ -1,0 +1,280 @@
+/* PANINI.Frontend.Make — POSIX/GNU make named extract.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Make
+
+FUNCTION mkTrim(s)
+    i = 0
+    n = LEN(s)
+    WHILE i < n AND (s[i] == " " OR s[i] == CR())
+        i = i + 1
+    END
+    j = n
+    WHILE j > i AND (s[j - 1] == " " OR s[j - 1] == CR())
+        j = j - 1
+    END
+    RETURN SLICE(s, i, j)
+END
+
+FUNCTION mkExpand(s, env)
+    out = ""
+    i = 0
+    n = LEN(s)
+    pass = 0
+    WHILE pass < 8
+        out = ""
+        i = 0
+        n = LEN(s)
+        WHILE i < n
+            IF s[i] == "$" AND i + 1 < n
+                IF s[i + 1] == "@"
+                    IF HASKEY(env, "@")
+                        out = out + env["@"]
+                    END
+                    i = i + 2
+                ELSEIF s[i + 1] == "<"
+                    IF HASKEY(env, "<")
+                        out = out + env["<"]
+                    END
+                    i = i + 2
+                ELSEIF s[i + 1] == "^"
+                    IF HASKEY(env, "^")
+                        out = out + env["^"]
+                    END
+                    i = i + 2
+                ELSEIF s[i + 1] == "("
+                    j = i + 2
+                    WHILE j < n AND s[j] != ")"
+                        j = j + 1
+                    END
+                    key = SLICE(s, i + 2, j)
+                    IF HASKEY(env, key)
+                        out = out + env[key]
+                    END
+                    i = j + 1
+                ELSEIF s[i + 1] == "{"
+                    j = i + 2
+                    WHILE j < n AND s[j] != "}"
+                        j = j + 1
+                    END
+                    key = SLICE(s, i + 2, j)
+                    IF HASKEY(env, key)
+                        out = out + env[key]
+                    END
+                    i = j + 1
+                ELSE
+                    out = out + s[i]
+                    i = i + 1
+                END
+            ELSE
+                out = out + s[i]
+                i = i + 1
+            END
+        END
+        IF out == s
+            RETURN out
+        END
+        s = out
+        pass = pass + 1
+    END
+    RETURN s
+END
+
+FUNCTION mkSplitWS(s)
+    out = []
+    cur = ""
+    i = 0
+    n = LEN(s)
+    WHILE i < n
+        IF s[i] == " " OR s[i] == TAB()
+            IF cur != ""
+                APPEND(out, cur)
+                cur = ""
+            END
+        ELSE
+            cur = cur + s[i]
+        END
+        i = i + 1
+    END
+    IF cur != ""
+        APPEND(out, cur)
+    END
+    RETURN out
+END
+
+FUNCTION mkActive(skip)
+    k = 0
+    WHILE k < LEN(skip)
+        IF skip[k] == 0
+            RETURN 0
+        END
+        k = k + 1
+    END
+    RETURN 1
+END
+
+FUNCTION mkRunTarget(name, rules, env, seen, prints)
+    IF HASKEY(seen, name)
+        RETURN 0
+    END
+    seen[name] = 1
+    ri = 0
+    r = NULL
+    WHILE ri < LEN(rules)
+        IF rules[ri].target == name
+            r = rules[ri]
+        END
+        ri = ri + 1
+    END
+    IF r == NULL
+        RETURN 0
+    END
+    di = 0
+    WHILE di < LEN(r.deps)
+        mkRunTarget(r.deps[di], rules, env, seen, prints)
+        di = di + 1
+    END
+    env["@"] = r.target
+    env["<"] = ""
+    IF LEN(r.deps) > 0
+        env["<"] = r.deps[0]
+    END
+    joined = ""
+    di = 0
+    WHILE di < LEN(r.deps)
+        IF di > 0
+            joined = joined + " "
+        END
+        joined = joined + r.deps[di]
+        di = di + 1
+    END
+    env["^"] = joined
+    qi = 0
+    WHILE qi < LEN(r.recipes)
+        cmd = mkTrim(mkExpand(r.recipes[qi], env))
+        IF LEN(cmd) >= 5 AND SLICE(cmd, 0, 5) == "echo "
+            t = SLICE(cmd, 5, LEN(cmd))
+            IF LEN(t) >= 2
+                IF (t[0] == QUOTE() AND t[LEN(t) - 1] == QUOTE()) OR (t[0] == "'" AND t[LEN(t) - 1] == "'")
+                    t = SLICE(t, 1, LEN(t) - 1)
+                END
+            END
+            APPEND(prints, t)
+            PRINT t
+        ELSE
+            IF cmd != ""
+                APPEND(prints, cmd)
+                PRINT cmd
+            END
+        END
+        qi = qi + 1
+    END
+    RETURN 1
+END
+
+FUNCTION run_make(source)
+    lines = []
+    cur = ""
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        IF source[i] == NEWLINE()
+            APPEND(lines, cur)
+            cur = ""
+        ELSE
+            cur = cur + source[i]
+        END
+        i = i + 1
+    END
+    APPEND(lines, cur)
+    env = {}
+    rules = []
+    current = NULL
+    skip = []
+    li = 0
+    WHILE li < LEN(lines)
+        line = lines[li]
+        t = mkTrim(line)
+        IF t == "" OR (LEN(t) > 0 AND t[0] == "#")
+            li = li + 1
+        ELSE
+            IF LEN(t) >= 4 AND SLICE(t, 0, 4) == "ifeq"
+                APPEND(skip, 1)
+            ELSEIF LEN(t) >= 5 AND SLICE(t, 0, 5) == "ifneq"
+                APPEND(skip, 1)
+            ELSEIF LEN(t) >= 5 AND SLICE(t, 0, 5) == "ifdef"
+                APPEND(skip, 1)
+            ELSEIF t == "else"
+                IF LEN(skip) > 0
+                    skip[LEN(skip) - 1] = 1 - skip[LEN(skip) - 1]
+                END
+            ELSEIF t == "endif"
+                IF LEN(skip) > 0
+                    skip = SLICE(skip, 0, LEN(skip) - 1)
+                END
+            ELSEIF mkActive(skip)
+                IF LEN(line) > 0 AND line[0] == TAB() AND current != NULL
+                    APPEND(current.recipes, SLICE(line, 1, LEN(line)))
+                ELSE
+                    colon = -1
+                    eq = -1
+                    ci = 0
+                    WHILE ci < LEN(line)
+                        IF colon < 0 AND line[ci] == ":" AND (ci + 1 >= LEN(line) OR line[ci + 1] != "=")
+                            colon = ci
+                        END
+                        IF eq < 0 AND line[ci] == "="
+                            eq = ci
+                        END
+                        ci = ci + 1
+                    END
+                    IF colon >= 0 AND (eq < 0 OR colon < eq)
+                        tgt = mkTrim(SLICE(line, 0, colon))
+                        rest = ""
+                        IF colon + 1 < LEN(line)
+                            rest = mkTrim(SLICE(line, colon + 1, LEN(line)))
+                        END
+                        current = {target: tgt, deps: mkSplitWS(rest), recipes: []}
+                        APPEND(rules, current)
+                    ELSEIF eq >= 0
+                        key = mkTrim(SLICE(line, 0, eq))
+                        IF LEN(key) > 0 AND key[LEN(key) - 1] == "+"
+                            key = mkTrim(SLICE(key, 0, LEN(key) - 1))
+                            val = mkTrim(mkExpand(SLICE(line, eq + 1, LEN(line)), env))
+                            IF HASKEY(env, key)
+                                env[key] = env[key] + " " + val
+                            ELSE
+                                env[key] = val
+                            END
+                        ELSEIF LEN(key) > 0 AND key[LEN(key) - 1] == "?"
+                            key = mkTrim(SLICE(key, 0, LEN(key) - 1))
+                            IF NOT HASKEY(env, key)
+                                env[key] = mkTrim(mkExpand(SLICE(line, eq + 1, LEN(line)), env))
+                            END
+                        ELSE
+                            IF LEN(key) > 0 AND key[LEN(key) - 1] == ":"
+                                key = mkTrim(SLICE(key, 0, LEN(key) - 1))
+                            END
+                            env[key] = mkTrim(mkExpand(SLICE(line, eq + 1, LEN(line)), env))
+                        END
+                        current = NULL
+                    END
+                END
+            END
+            li = li + 1
+        END
+    END
+    prints = []
+    first = "all"
+    IF LEN(rules) > 0
+        first = rules[0].target
+    END
+    mkRunTarget(first, rules, env, {}, prints)
+    RETURN {ok: TRUE, value: LEN(prints), prints: prints, print: "", frontend: "PANINI.Frontend.Make"}
+END
+
+FUNCTION main()
+    r = run_make("all:" + NEWLINE() + TAB() + "echo ok" + NEWLINE())
+    RETURN r.value
+END
+END

@@ -1,0 +1,149 @@
+MODULE PANINI.Frontend.Rust
+
+FUNCTION rIsDigit(ch)
+    RETURN ch >= "0" AND ch <= "9"
+END
+
+FUNCTION rIsAlpha(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+
+FUNCTION rTok(kind, value)
+    RETURN {kind: kind, value: value}
+END
+
+FUNCTION rLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSE
+            IF ch == "/" AND i + 1 < n AND source[i + 1] == "/"
+                WHILE i < n AND source[i] != NEWLINE()
+                    i = i + 1
+                END
+            ELSE
+                IF rIsDigit(ch)
+                    raw = ""
+                    WHILE i < n AND rIsDigit(source[i])
+                        raw = raw + source[i]
+                        i = i + 1
+                    END
+                    APPEND(tokens, rTok("NUM", raw))
+                ELSE
+                    IF rIsAlpha(ch)
+                        raw = ""
+                        WHILE i < n AND (rIsAlpha(source[i]) OR rIsDigit(source[i]))
+                            raw = raw + source[i]
+                            i = i + 1
+                        END
+                        kind = "IDENT"
+                        IF raw == "fn" OR raw == "let" OR raw == "return" OR raw == "println" OR raw == "main" OR raw == "mut"
+                            kind = "KW"
+                        END
+                        APPEND(tokens, rTok(kind, raw))
+                    ELSE
+                        APPEND(tokens, rTok("OP", ch))
+                        i = i + 1
+                    END
+                END
+            END
+        END
+    END
+    APPEND(tokens, rTok("EOF", ""))
+    RETURN tokens
+END
+
+FUNCTION rNew(tokens)
+    RETURN {tokens: tokens, i: 0}
+END
+
+FUNCTION rPeek(st)
+    IF st.i >= LEN(st.tokens)
+        RETURN rTok("EOF", "")
+    END
+    RETURN st.tokens[st.i]
+END
+
+FUNCTION rEat(st)
+    t = rPeek(st)
+    st.i = st.i + 1
+    RETURN t
+END
+
+FUNCTION rParseAtom(st)
+    t = rPeek(st)
+    IF t.kind == "NUM"
+        rEat(st)
+        RETURN {op: "const", value: INT(t.value)}
+    END
+    IF t.value == "("
+        rEat(st)
+        e = rParseExpr(st)
+        IF rPeek(st).value == ")"
+            rEat(st)
+        END
+        RETURN e
+    END
+    rEat(st)
+    RETURN {op: "const", value: 0}
+END
+
+FUNCTION rParseMul(st)
+    left = rParseAtom(st)
+    WHILE rPeek(st).value == "*" OR rPeek(st).value == "/"
+        op = rEat(st).value
+        left = {op: "bin", operator: op, left: left, right: rParseAtom(st)}
+    END
+    RETURN left
+END
+
+FUNCTION rParseExpr(st)
+    left = rParseMul(st)
+    WHILE rPeek(st).value == "+" OR rPeek(st).value == "-"
+        op = rEat(st).value
+        left = {op: "bin", operator: op, left: left, right: rParseMul(st)}
+    END
+    RETURN left
+END
+
+FUNCTION rEval(e)
+    IF e.op == "const"
+        RETURN e.value
+    END
+    IF e.op == "bin"
+        l = rEval(e.left)
+        rr = rEval(e.right)
+        IF e.operator == "+"
+            RETURN l + rr
+        END
+        IF e.operator == "-"
+            RETURN l - rr
+        END
+        IF e.operator == "*"
+            RETURN l * rr
+        END
+        RETURN l / rr
+    END
+    RETURN 0
+END
+
+FUNCTION run_rust(source)
+    tokens = rLex(source)
+    lowered = rustToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Rust"
+    r.rust_tokens = LEN(tokens)
+    r.lowered = lowered
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_rust("fn main(){ println!(\"{}\", 40+2); }")
+    RETURN r.value
+END
+
+END

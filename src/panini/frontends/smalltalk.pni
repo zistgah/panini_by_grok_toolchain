@@ -1,0 +1,84 @@
+/* PANINI.Frontend.Smalltalk — Eval [ integer expr ].
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Smalltalk
+FUNCTION stEval(s)
+    /* 3 + 4  or  12 // 5 */
+    s = s
+    i = 0
+    n = LEN(s)
+    WHILE i < n AND (s[i] == " " OR s[i] == TAB())
+        i = i + 1
+    END
+    raw = ""
+    WHILE i < n AND s[i] >= "0" AND s[i] <= "9"
+        raw = raw + s[i]
+        i = i + 1
+    END
+    a = 0
+    IF raw != ""
+        a = INT(raw)
+    END
+    WHILE i < n AND s[i] == " "
+        i = i + 1
+    END
+    op = ""
+    WHILE i < n AND s[i] != " " AND (s[i] < "0" OR s[i] > "9")
+        op = op + s[i]
+        i = i + 1
+    END
+    WHILE i < n AND s[i] == " "
+        i = i + 1
+    END
+    raw = ""
+    WHILE i < n AND s[i] >= "0" AND s[i] <= "9"
+        raw = raw + s[i]
+        i = i + 1
+    END
+    b = 0
+    IF raw != ""
+        b = INT(raw)
+    END
+    IF op == "+"
+        RETURN a + b
+    END
+    IF op == "-"
+        RETURN a - b
+    END
+    IF op == "*"
+        RETURN a * b
+    END
+    IF op == "//"
+        RETURN a / b
+    END
+    IF op == "<"
+        RETURN a < b
+    END
+    RETURN a
+END
+
+FUNCTION run_smalltalk(source)
+    last = 0
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        IF i + 6 <= n AND SLICE(source, i, i + 6) == "Eval ["
+            i = i + 6
+            expr = ""
+            WHILE i < n AND source[i] != "]"
+                expr = expr + source[i]
+                i = i + 1
+            END
+            last = stEval(expr)
+            PRINT last
+        ELSE
+            i = i + 1
+        END
+    END
+    RETURN {ok: TRUE, value: last, frontend: "PANINI.Frontend.Smalltalk"}
+END
+FUNCTION main()
+    r = run_smalltalk("Eval [ 3 + 4 ]")
+    RETURN r.value
+END
+END

@@ -1,0 +1,22 @@
+/* Copyright (C) 1993-2026 Abhishek Choudhary
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * C# integer extract. csharpToC in to_c.pni, then run_c. Written in PANINI.
+ */
+MODULE PANINI.Frontend.CSharp
+
+FUNCTION run_csharp(source)
+    n = LEN(source)
+    lowered = csharpToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.CSharp"
+    r.lowered = lowered
+    r.bytes = n
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_csharp("using System;\nclass Program {\n  static int Main() {\n    int n = 40 + 2;\n    Console.WriteLine(n);\n    return n;\n  }\n}\n")
+    RETURN r.value
+END
+
+END

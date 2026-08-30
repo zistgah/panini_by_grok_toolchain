@@ -1,8 +1,8 @@
 // @ts-nocheck
 /**
- * C translation phases 1–4 (preprocessor).
+ * C translation phases 1–4 (preprocessor) for the WASM backend parser.
  * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
- * Called from PANINI via CPP(). Lexer/parser/eval stay in c.pni.
+ * Not a frontend. Frontends use preprocess.pni (ppCpp).
  */
 export function ccpp(src) {
   src = String(src).replace(/\r\n/g, "\n").replace(/\\\n/g, "");

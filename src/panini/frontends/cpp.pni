@@ -1,0 +1,83 @@
+/* PANINI.Frontend.Cpp
+ * ISO/IEC 14882:2017 (C++17) frontend in PANINI.
+ * Lex in this module. Lowering is cppToC in to_c.pni. Eval is run_c.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Cpp
+
+FUNCTION cppIsDigit(ch)
+    RETURN ch >= "0" AND ch <= "9"
+END
+FUNCTION cppIsAlpha(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+FUNCTION cppTok(kind, value)
+    RETURN {kind: kind, value: value}
+END
+FUNCTION cppKw(raw)
+    IF raw == "int" OR raw == "return" OR raw == "void" OR raw == "if" OR raw == "else" OR raw == "while" OR raw == "for" OR raw == "do" OR raw == "char" OR raw == "goto" OR raw == "break" OR raw == "continue" OR raw == "struct" OR raw == "class" OR raw == "public" OR raw == "private" OR raw == "protected" OR raw == "namespace" OR raw == "using" OR raw == "bool" OR raw == "true" OR raw == "false" OR raw == "nullptr" OR raw == "new" OR raw == "delete" OR raw == "this" OR raw == "template" OR raw == "typename" OR raw == "virtual" OR raw == "const" OR raw == "unsigned" OR raw == "long" OR raw == "short" OR raw == "sizeof" OR raw == "typedef" OR raw == "switch" OR raw == "case" OR raw == "default"
+        RETURN "KW"
+    END
+    RETURN "IDENT"
+END
+FUNCTION cppLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSEIF ch == "#"
+            WHILE i < n AND source[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSEIF ch == "/" AND i + 1 < n AND source[i + 1] == "/"
+            WHILE i < n AND source[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSEIF ch == "/" AND i + 1 < n AND source[i + 1] == "*"
+            i = i + 2
+            WHILE i + 1 < n AND NOT (source[i] == "*" AND source[i + 1] == "/")
+                i = i + 1
+            END
+            i = i + 2
+        ELSEIF cppIsDigit(ch)
+            raw = ""
+            WHILE i < n AND cppIsDigit(source[i])
+                raw = raw + source[i]
+                i = i + 1
+            END
+            APPEND(tokens, cppTok("NUM", raw))
+        ELSEIF cppIsAlpha(ch)
+            raw = ""
+            WHILE i < n AND (cppIsAlpha(source[i]) OR cppIsDigit(source[i]))
+                raw = raw + source[i]
+                i = i + 1
+            END
+            APPEND(tokens, cppTok(cppKw(raw), raw))
+        ELSE
+            APPEND(tokens, cppTok("OP", ch))
+            i = i + 1
+        END
+    END
+    APPEND(tokens, cppTok("EOF", ""))
+    RETURN tokens
+END
+
+FUNCTION run_cpp(source)
+    tokens = cppLex(source)
+    lowered = cppToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Cpp"
+    r.cpp_tokens = LEN(tokens)
+    r.lowered = lowered
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_cpp("int main(){return 0;}")
+    RETURN r.value
+END
+
+END

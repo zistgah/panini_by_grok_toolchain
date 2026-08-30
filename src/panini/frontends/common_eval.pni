@@ -1,0 +1,9 @@
+MODULE PANINI.Frontend.Common
+/* Shared numeric expression evaluator used by print-oriented frontends. */
+FUNCTION ceIsDigit(ch)
+    RETURN ch >= "0" AND ch <= "9"
+END
+FUNCTION ceIsAlpha(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+END

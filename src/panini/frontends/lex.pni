@@ -1,0 +1,21 @@
+/* PANINI.Frontend.Lex — flex named extract.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Lex
+FUNCTION run_lex(source)
+    n = 0
+    i = 0
+    WHILE i + 2 <= LEN(source)
+        IF SLICE(source, i, i + 2) == "%%"
+            n = n + 1
+        END
+        i = i + 1
+    END
+    PRINT "lex"
+    RETURN {ok: TRUE, value: n, frontend: "PANINI.Frontend.Lex"}
+END
+FUNCTION main()
+    r = run_lex("%%" + NEWLINE() + "ab+ { printf(\"match\"); }" + NEWLINE() + "%%")
+    RETURN r.value
+END
+END

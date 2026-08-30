@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * C four-pass lowering. WASM and run_c stay frozen.
+ * C four-pass lowering for the WASM backend parser. Not a frontend.
  * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
  *
  * 1. Macro/CPP-lite (see gnuc.js for GNU).

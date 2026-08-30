@@ -1,0 +1,22 @@
+/* Copyright (C) 1993-2026 Abhishek Choudhary
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Dart integer extract. dartToC in to_c.pni, then run_c. Written in PANINI.
+ */
+MODULE PANINI.Frontend.Dart
+
+FUNCTION run_dart(source)
+    n = LEN(source)
+    lowered = dartToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Dart"
+    r.lowered = lowered
+    r.bytes = n
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_dart("int add(int a, int b) {\n  return a + b;\n}\nint main() {\n  var n = add(40, 2);\n  print(n);\n  return n;\n}\n")
+    RETURN r.value
+END
+
+END

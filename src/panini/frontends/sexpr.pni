@@ -1,0 +1,286 @@
+/* S-expression reader + integer eval. Used by Lisp, Scheme, Clojure.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Sexpr
+
+FUNCTION sxSkip(s, i)
+    n = LEN(s)
+    WHILE i < n
+        ch = s[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR() OR ch == ","
+            i = i + 1
+        ELSEIF ch == ";"
+            WHILE i < n AND s[i] != NEWLINE()
+                i = i + 1
+            END
+        ELSE
+            RETURN i
+        END
+    END
+    RETURN i
+END
+
+FUNCTION sxRead(s, i)
+    i = sxSkip(s, i)
+    n = LEN(s)
+    IF i >= n
+        RETURN {v: NULL, i: i}
+    END
+    ch = s[i]
+    IF ch == "'"
+        r = sxRead(s, i + 1)
+        RETURN {v: ["quote", r.v], i: r.i}
+    END
+    IF ch == "(" OR ch == "["
+        close = ")"
+        IF ch == "["
+            close = "]"
+        END
+        i = i + 1
+        items = []
+        WHILE TRUE
+            i = sxSkip(s, i)
+            IF i >= n
+                RETURN {v: items, i: i}
+            END
+            IF s[i] == close
+                RETURN {v: items, i: i + 1}
+            END
+            r = sxRead(s, i)
+            APPEND(items, r.v)
+            i = r.i
+        END
+    END
+    IF ch == QUOTE()
+        i = i + 1
+        raw = ""
+        WHILE i < n AND s[i] != QUOTE()
+            raw = raw + s[i]
+            i = i + 1
+        END
+        IF i < n
+            i = i + 1
+        END
+        RETURN {v: raw, i: i}
+    END
+    IF ch == "-" AND i + 1 < n AND s[i + 1] >= "0" AND s[i + 1] <= "9"
+        i = i + 1
+        raw = "-"
+        WHILE i < n AND s[i] >= "0" AND s[i] <= "9"
+            raw = raw + s[i]
+            i = i + 1
+        END
+        RETURN {v: INT(raw), i: i}
+    END
+    IF ch >= "0" AND ch <= "9"
+        raw = ""
+        WHILE i < n AND s[i] >= "0" AND s[i] <= "9"
+            raw = raw + s[i]
+            i = i + 1
+        END
+        RETURN {v: INT(raw), i: i}
+    END
+    raw = ""
+    WHILE i < n AND s[i] != " " AND s[i] != TAB() AND s[i] != NEWLINE() AND s[i] != CR() AND s[i] != "(" AND s[i] != ")" AND s[i] != "[" AND s[i] != "]" AND s[i] != "'" AND s[i] != QUOTE() AND s[i] != ","
+        raw = raw + s[i]
+        i = i + 1
+    END
+    RETURN {v: raw, i: i}
+END
+
+FUNCTION sxReadAll(s)
+    forms = []
+    i = 0
+    n = LEN(s)
+    WHILE i < n
+        i = sxSkip(s, i)
+        IF i >= n
+            RETURN forms
+        END
+        r = sxRead(s, i)
+        APPEND(forms, r.v)
+        i = r.i
+    END
+    RETURN forms
+END
+
+FUNCTION sxIsList(v)
+    RETURN TYPEOF(v) == "List"
+END
+
+FUNCTION sxHead(v)
+    IF sxIsList(v) AND LEN(v) > 0
+        RETURN v[0]
+    END
+    RETURN NULL
+END
+
+FUNCTION sxLookup(env, name)
+    IF HASKEY(env, name)
+        RETURN env[name]
+    END
+    IF env.parent != NULL
+        RETURN sxLookup(env.parent, name)
+    END
+    RETURN NULL
+END
+
+FUNCTION sxChild(parent)
+    RETURN {parent: parent}
+END
+
+FUNCTION sxEval(v, env)
+    IF v == NULL
+        RETURN 0
+    END
+    IF TYPEOF(v) == "Int" OR TYPEOF(v) == "Float"
+        RETURN v
+    END
+    IF TYPEOF(v) == "String"
+        found = sxLookup(env, v)
+        IF found != NULL
+            RETURN found
+        END
+        RETURN 0
+    END
+    IF NOT sxIsList(v)
+        RETURN 0
+    END
+    IF LEN(v) == 0
+        RETURN 0
+    END
+    h = v[0]
+    IF h == "quote"
+        IF LEN(v) > 1
+            RETURN v[1]
+        END
+        RETURN 0
+    END
+    IF h == "if"
+        c = sxEval(v[1], env)
+        IF c
+            RETURN sxEval(v[2], env)
+        END
+        IF LEN(v) > 3
+            RETURN sxEval(v[3], env)
+        END
+        RETURN 0
+    END
+    IF h == "let" OR h == "LET"
+        local = sxChild(env)
+        binds = v[1]
+        bi = 0
+        WHILE bi < LEN(binds)
+            b = binds[bi]
+            IF sxIsList(b) AND LEN(b) >= 2
+                local[b[0]] = sxEval(b[1], env)
+            END
+            bi = bi + 1
+        END
+        last = 0
+        k = 2
+        WHILE k < LEN(v)
+            last = sxEval(v[k], local)
+            k = k + 1
+        END
+        RETURN last
+    END
+    IF h == "define" OR h == "defun" OR h == "defn" OR h == "DEFTEST" OR h == "deftest"
+        name = v[1]
+        IF sxIsList(name)
+            fnname = name[0]
+            params = SLICE(name, 1, LEN(name))
+            body = SLICE(v, 2, LEN(v))
+            env[fnname] = {kind: "fn", params: params, body: body, env: env}
+            RETURN fnname
+        END
+        IF h == "defn" AND LEN(v) > 3 AND sxIsList(v[2])
+            env[name] = {kind: "fn", params: v[2], body: SLICE(v, 3, LEN(v)), env: env}
+            RETURN name
+        END
+        IF h == "deftest" OR h == "DEFTEST"
+            RETURN sxEval(v[2], env)
+        END
+        env[name] = sxEval(v[2], env)
+        RETURN env[name]
+    END
+    IF h == "+" OR h == "-" OR h == "*" OR h == "/" OR h == "remainder" OR h == "mod" OR h == "%"
+        a = 0
+        IF LEN(v) > 1
+            a = sxEval(v[1], env)
+        END
+        IF h == "-" AND LEN(v) == 2
+            RETURN 0 - a
+        END
+        k = 2
+        WHILE k < LEN(v)
+            b = sxEval(v[k], env)
+            IF h == "+"
+                a = a + b
+            ELSEIF h == "-"
+                a = a - b
+            ELSEIF h == "*"
+                a = a * b
+            ELSEIF h == "/"
+                a = a / b
+            ELSE
+                a = a % b
+            END
+            k = k + 1
+        END
+        RETURN a
+    END
+    IF h == "=" OR h == "eq" OR h == "equal"
+        RETURN sxEval(v[1], env) == sxEval(v[2], env)
+    END
+    IF h == "<"
+        RETURN sxEval(v[1], env) < sxEval(v[2], env)
+    END
+    IF h == ">"
+        RETURN sxEval(v[1], env) > sxEval(v[2], env)
+    END
+    IF h == "<="
+        RETURN sxEval(v[1], env) <= sxEval(v[2], env)
+    END
+    IF h == ">="
+        RETURN sxEval(v[1], env) >= sxEval(v[2], env)
+    END
+    IF h == "lambda" OR h == "fn"
+        RETURN {kind: "fn", params: v[1], body: SLICE(v, 2, LEN(v)), env: env}
+    END
+    fn = sxEval(h, env)
+    IF TYPEOF(fn) == "Map" AND fn.kind == "fn"
+        local = sxChild(fn.env)
+        pi = 0
+        WHILE pi < LEN(fn.params)
+            av = 0
+            IF pi + 1 < LEN(v)
+                av = sxEval(v[pi + 1], env)
+            END
+            local[fn.params[pi]] = av
+            pi = pi + 1
+        END
+        last = 0
+        bi = 0
+        WHILE bi < LEN(fn.body)
+            last = sxEval(fn.body[bi], local)
+            bi = bi + 1
+        END
+        RETURN last
+    END
+    RETURN 0
+END
+
+FUNCTION sxRun(source, frontend)
+    forms = sxReadAll(source)
+    env = {parent: NULL}
+    last = 0
+    k = 0
+    WHILE k < LEN(forms)
+        last = sxEval(forms[k], env)
+        k = k + 1
+    END
+    RETURN {ok: TRUE, value: last, frontend: frontend, token_count: LEN(forms)}
+END
+
+END

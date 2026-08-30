@@ -1,0 +1,45 @@
+/* PANINI.Frontend.Ld — linker-script tokens. Not a linker.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Ld
+FUNCTION run_ld(source)
+    entry = ""
+    sections = []
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        IF i + 6 <= n AND SLICE(source, i, i + 6) == "ENTRY("
+            i = i + 6
+            name = ""
+            WHILE i < n AND source[i] != ")"
+                name = name + source[i]
+                i = i + 1
+            END
+            entry = name
+        ELSEIF i + 1 < n AND source[i] == "." AND ((source[i + 1] >= "a" AND source[i + 1] <= "z") OR source[i + 1] == "t" OR source[i + 1] == "d" OR source[i + 1] == "b" OR source[i + 1] == "r")
+            j = i + 1
+            WHILE j < n AND ((source[j] >= "a" AND source[j] <= "z") OR (source[j] >= "A" AND source[j] <= "Z") OR source[j] == "_")
+                j = j + 1
+            END
+            k = j
+            WHILE k < n AND (source[k] == " " OR source[k] == TAB())
+                k = k + 1
+            END
+            IF k < n AND source[k] == ":"
+                APPEND(sections, SLICE(source, i, j))
+            END
+            i = j
+        ELSE
+            i = i + 1
+        END
+    END
+    IF entry != ""
+        PRINT "ENTRY " + entry
+    END
+    RETURN {ok: TRUE, value: LEN(sections), frontend: "PANINI.Frontend.Ld"}
+END
+FUNCTION main()
+    r = run_ld("ENTRY(main)" + NEWLINE() + "SECTIONS { .text : { *(.text) } }")
+    RETURN r.value
+END
+END

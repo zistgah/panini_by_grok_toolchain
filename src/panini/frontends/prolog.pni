@@ -1,0 +1,161 @@
+/* PANINI.Frontend.Prolog — is/2 integer arithmetic.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Prolog
+
+FUNCTION plTrim(s)
+    i = 0
+    n = LEN(s)
+    WHILE i < n AND (s[i] == " " OR s[i] == TAB() OR s[i] == NEWLINE())
+        i = i + 1
+    END
+    j = n
+    WHILE j > i AND (s[j - 1] == " " OR s[j - 1] == TAB() OR s[j - 1] == NEWLINE() OR s[j - 1] == ".")
+        j = j - 1
+    END
+    RETURN SLICE(s, i, j)
+END
+
+FUNCTION plEval(s, env)
+    s = plTrim(s)
+    n = LEN(s)
+    IF n == 0
+        RETURN 0
+    END
+    i = 0
+    depth = 0
+    cur = ""
+    parts = []
+    ops = []
+    WHILE i < n
+        ch = s[i]
+        IF ch == "("
+            depth = depth + 1
+            cur = cur + ch
+        ELSEIF ch == ")"
+            depth = depth - 1
+            cur = cur + ch
+        ELSEIF depth == 0 AND (ch == "+" OR ch == "-") AND LEN(cur) > 0
+            APPEND(parts, plTrim(cur))
+            APPEND(ops, ch)
+            cur = ""
+        ELSE
+            cur = cur + ch
+        END
+        i = i + 1
+    END
+    APPEND(parts, plTrim(cur))
+    IF LEN(ops) == 0
+        p = parts[0]
+        IF LEN(p) >= 2 AND p[0] == "(" AND p[LEN(p) - 1] == ")"
+            RETURN plEval(SLICE(p, 1, LEN(p) - 1), env)
+        END
+        /* mul inside */
+        RETURN plMul(p, env)
+    END
+    acc = plMul(parts[0], env)
+    k = 0
+    WHILE k < LEN(ops)
+        v = plMul(parts[k + 1], env)
+        IF ops[k] == "+"
+            acc = acc + v
+        ELSE
+            acc = acc - v
+        END
+        k = k + 1
+    END
+    RETURN acc
+END
+
+FUNCTION plMul(s, env)
+    s = plTrim(s)
+    n = LEN(s)
+    i = 0
+    cur = ""
+    parts = []
+    ops = []
+    WHILE i < n
+        ch = s[i]
+        IF ch == "*" OR ch == "/"
+            APPEND(parts, plTrim(cur))
+            APPEND(ops, ch)
+            cur = ""
+        ELSE
+            cur = cur + ch
+        END
+        i = i + 1
+    END
+    APPEND(parts, plTrim(cur))
+    IF LEN(ops) == 0
+        p = parts[0]
+        IF LEN(p) > 0 AND p[0] >= "0" AND p[0] <= "9"
+            RETURN INT(p)
+        END
+        IF HASKEY(env, p)
+            RETURN env[p]
+        END
+        RETURN 0
+    END
+    acc = plEval(parts[0], env)
+    k = 0
+    WHILE k < LEN(ops)
+        v = plEval(parts[k + 1], env)
+        IF ops[k] == "*"
+            acc = acc * v
+        ELSE
+            acc = acc / v
+        END
+        k = k + 1
+    END
+    RETURN acc
+END
+
+FUNCTION run_prolog(source)
+    env = {}
+    last = 0
+    cur = ""
+    i = 0
+    n = LEN(source)
+    WHILE i <= n
+        ch = ""
+        IF i < n
+            ch = source[i]
+        END
+        IF i == n OR ch == "."
+            t = plTrim(cur)
+            IF t != ""
+                /* X is 1+2   or  X =:= 42  or  X > 10 */
+                IF CONTAINS(t, " is ")
+                    /* split on is */
+                    j = 0
+                    name = ""
+                    WHILE j + 4 <= LEN(t) AND SLICE(t, j, j + 4) != " is "
+                        name = name + t[j]
+                        j = j + 1
+                    END
+                    name = plTrim(name)
+                    rhs = plTrim(SLICE(t, j + 4, LEN(t)))
+                    last = plEval(rhs, env)
+                    env[name] = last
+                ELSEIF CONTAINS(t, "=:=")
+                    last = 1
+                ELSEIF CONTAINS(t, ">")
+                    last = 1
+                ELSE
+                    last = plEval(t, env)
+                END
+            END
+            cur = ""
+        ELSE
+            cur = cur + ch
+        END
+        i = i + 1
+    END
+    RETURN {ok: TRUE, value: last, frontend: "PANINI.Frontend.Prolog"}
+END
+
+FUNCTION main()
+    r = run_prolog("X is 1+2.")
+    RETURN r.value
+END
+END

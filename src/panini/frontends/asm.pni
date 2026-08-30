@@ -1,0 +1,220 @@
+/* PANINI.Frontend.Asm — AT&T integer subset. Result is %eax.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Asm
+
+FUNCTION asTrim(s)
+    i = 0
+    n = LEN(s)
+    WHILE i < n AND (s[i] == " " OR s[i] == TAB() OR s[i] == CR())
+        i = i + 1
+    END
+    j = n
+    WHILE j > i AND (s[j - 1] == " " OR s[j - 1] == TAB() OR s[j - 1] == CR())
+        j = j - 1
+    END
+    RETURN SLICE(s, i, j)
+END
+
+FUNCTION asImm(tok, env)
+    t = asTrim(tok)
+    IF LEN(t) == 0
+        RETURN 0
+    END
+    IF t[0] == "$"
+        t = SLICE(t, 1, LEN(t))
+    END
+    IF LEN(t) > 0 AND t[0] == "%"
+        name = SLICE(t, 1, LEN(t))
+        IF HASKEY(env, name)
+            RETURN env[name]
+        END
+        RETURN 0
+    END
+    IF LEN(t) > 0 AND ((t[0] >= "0" AND t[0] <= "9") OR t[0] == "-")
+        RETURN INT(t)
+    END
+    IF HASKEY(env, t)
+        RETURN env[t]
+    END
+    RETURN 0
+END
+
+FUNCTION asReg(tok)
+    t = asTrim(tok)
+    IF LEN(t) > 0 AND t[0] == "%"
+        RETURN SLICE(t, 1, LEN(t))
+    END
+    RETURN t
+END
+
+FUNCTION asBase(op)
+    n = LEN(op)
+    IF n > 0
+        last = op[n - 1]
+        IF last == "l" OR last == "b" OR last == "w" OR last == "q"
+            RETURN SLICE(op, 0, n - 1)
+        END
+    END
+    RETURN op
+END
+
+FUNCTION asSplitArgs(s)
+    out = []
+    cur = ""
+    i = 0
+    n = LEN(s)
+    WHILE i < n
+        IF s[i] == ","
+            APPEND(out, asTrim(cur))
+            cur = ""
+        ELSE
+            cur = cur + s[i]
+        END
+        i = i + 1
+    END
+    IF asTrim(cur) != ""
+        APPEND(out, asTrim(cur))
+    END
+    RETURN out
+END
+
+FUNCTION run_asm(source)
+    env = {}
+    env["eax"] = 0
+    env["ebx"] = 0
+    env["ecx"] = 0
+    env["edx"] = 0
+    env["rax"] = 0
+    env["rbx"] = 0
+    body = []
+    labels = {}
+    lines = []
+    cur = ""
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        IF source[i] == NEWLINE()
+            APPEND(lines, cur)
+            cur = ""
+        ELSE
+            cur = cur + source[i]
+        END
+        i = i + 1
+    END
+    APPEND(lines, cur)
+    li = 0
+    WHILE li < LEN(lines)
+        line = asTrim(lines[li])
+        hash = -1
+        ci = 0
+        WHILE ci < LEN(line)
+            IF line[ci] == "#"
+                hash = ci
+                ci = LEN(line)
+            END
+            ci = ci + 1
+        END
+        IF hash >= 0
+            line = asTrim(SLICE(line, 0, hash))
+        END
+        IF line != "" AND NOT (LEN(line) > 0 AND line[0] == ".")
+            colon = -1
+            ci = 0
+            WHILE ci < LEN(line)
+                IF line[ci] == ":"
+                    colon = ci
+                    ci = LEN(line)
+                END
+                ci = ci + 1
+            END
+            IF colon >= 0
+                lab = asTrim(SLICE(line, 0, colon))
+                labels[lab] = LEN(body)
+                rest = asTrim(SLICE(line, colon + 1, LEN(line)))
+                IF rest != ""
+                    APPEND(body, rest)
+                END
+            ELSE
+                APPEND(body, line)
+            END
+        END
+        li = li + 1
+    END
+    pc = 0
+    steps = 0
+    cmpv = 0
+    WHILE pc < LEN(body) AND steps < 20000
+        steps = steps + 1
+        line = body[pc]
+        sp = 0
+        WHILE sp < LEN(line) AND line[sp] != " " AND line[sp] != TAB()
+            sp = sp + 1
+        END
+        op = asBase(SLICE(line, 0, sp))
+        args = asSplitArgs(SLICE(line, sp, LEN(line)))
+        IF op == "ret"
+            pc = LEN(body)
+        ELSEIF op == "mov" OR op == "lea"
+            IF LEN(args) >= 2
+                env[asReg(args[1])] = asImm(args[0], env)
+            END
+            pc = pc + 1
+        ELSEIF op == "add"
+            dst = asReg(args[1])
+            env[dst] = env[dst] + asImm(args[0], env)
+            pc = pc + 1
+        ELSEIF op == "sub"
+            dst = asReg(args[1])
+            env[dst] = env[dst] - asImm(args[0], env)
+            pc = pc + 1
+        ELSEIF op == "cmp"
+            cmpv = asImm(args[1], env) - asImm(args[0], env)
+            pc = pc + 1
+        ELSEIF op == "inc"
+            d = asReg(args[0])
+            env[d] = env[d] + 1
+            pc = pc + 1
+        ELSEIF op == "dec"
+            d = asReg(args[0])
+            env[d] = env[d] - 1
+            pc = pc + 1
+        ELSEIF op == "jmp" OR op == "je" OR op == "jz" OR op == "jne" OR op == "jnz" OR op == "jl" OR op == "jg" OR op == "jle" OR op == "jge" OR op == "jnge" OR op == "jnle" OR op == "jng" OR op == "jnl"
+            take = 0
+            IF op == "jmp"
+                take = 1
+            ELSEIF op == "je" OR op == "jz"
+                take = cmpv == 0
+            ELSEIF op == "jne" OR op == "jnz"
+                take = cmpv != 0
+            ELSEIF op == "jl" OR op == "jnge"
+                take = cmpv < 0
+            ELSEIF op == "jg" OR op == "jnle"
+                take = cmpv > 0
+            ELSEIF op == "jle" OR op == "jng"
+                take = cmpv <= 0
+            ELSEIF op == "jge" OR op == "jnl"
+                take = cmpv >= 0
+            END
+            t = asTrim(args[0])
+            IF take AND HASKEY(labels, t)
+                pc = labels[t]
+            ELSE
+                pc = pc + 1
+            END
+        ELSE
+            pc = pc + 1
+        END
+    END
+    value = env["eax"]
+    IF value == 0
+        value = env["rax"]
+    END
+    RETURN {ok: TRUE, value: value, frontend: "PANINI.Frontend.Asm"}
+END
+
+FUNCTION main()
+    r = run_asm("movl $42, %eax" + NEWLINE() + "ret" + NEWLINE())
+    RETURN r.value
+END
+END

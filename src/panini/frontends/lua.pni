@@ -1,0 +1,65 @@
+/* Copyright (C) 1993-2026 Abhishek Choudhary
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Lua frontend in PANINI. Subset: function, local, return, print, arithmetic.
+ * luaToC in to_c.pni, then run_c.
+ */
+MODULE PANINI.Frontend.Lua
+
+FUNCTION luaLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSE
+            IF ch == "-" AND i + 1 < n AND source[i + 1] == "-"
+                WHILE i < n AND source[i] != NEWLINE()
+                    i = i + 1
+                END
+            ELSE
+                IF ch >= "0" AND ch <= "9"
+                    raw = ""
+                    WHILE i < n AND source[i] >= "0" AND source[i] <= "9"
+                        raw = raw + source[i]
+                        i = i + 1
+                    END
+                    APPEND(tokens, {kind: "NUM", value: raw})
+                ELSE
+                    IF (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+                        raw = ""
+                        WHILE i < n AND ((source[i] >= "A" AND source[i] <= "Z") OR (source[i] >= "a" AND source[i] <= "z") OR (source[i] >= "0" AND source[i] <= "9") OR source[i] == "_")
+                            raw = raw + source[i]
+                            i = i + 1
+                        END
+                        APPEND(tokens, {kind: "ID", value: raw})
+                    ELSE
+                        APPEND(tokens, {kind: "PUNCT", value: ch})
+                        i = i + 1
+                    END
+                END
+            END
+        END
+    END
+    APPEND(tokens, {kind: "EOF", value: ""})
+    RETURN tokens
+END
+
+FUNCTION run_lua(source)
+    tokens = luaLex(source)
+    lowered = luaToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Lua"
+    r.lua_tokens = LEN(tokens)
+    r.lowered = lowered
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_lua("function add(a,b) return a+b end print(add(40,2))")
+    PRINT r.token_count
+    RETURN 0
+END
+
+END

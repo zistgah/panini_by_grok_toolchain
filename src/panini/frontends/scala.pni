@@ -1,0 +1,22 @@
+/* Copyright (C) 1993-2026 Abhishek Choudhary
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Scala integer extract. scalaToC in to_c.pni, then run_c. Written in PANINI.
+ */
+MODULE PANINI.Frontend.Scala
+
+FUNCTION run_scala(source)
+    n = LEN(source)
+    lowered = scalaToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Scala"
+    r.lowered = lowered
+    r.bytes = n
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_scala("object P {\n  def add(a: Int, b: Int): Int = a + b\n  def main(args: Array[String]): Int = {\n    val n = add(40, 2)\n    println(n)\n    return n\n  }\n}\n")
+    RETURN r.value
+END
+
+END

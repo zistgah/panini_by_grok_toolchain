@@ -1,11 +1,10 @@
 /* Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
  * Emit: WASM (in-tree wat2wasm), WAT, lowered C, host cc.
+ * Lowering is PANINI (to_c.pni). WAT encoding is the WASM backend.
  * panc is not gcc. --native is gcc/clang when a host provides it.
  */
 import { dumpAst, lowerToC } from "./ast.ts";
 import { cToWat, cToWasm, runCWasm } from "./engine/c2wat.js";
-import { clower } from "./engine/clower.js";
-import { gnuc } from "./engine/gnuc.js";
 
 export type EmitKind = "run" | "wasm" | "wat" | "c" | "ast" | "native";
 
@@ -51,28 +50,27 @@ export function base64ToBytes(s: string): Uint8Array {
 }
 
 export async function emitWasm(id: string, source: string): Promise<{ wat: string; bytes: Uint8Array }> {
-  const c = lowerToC(id, source);
+  const c = await lowerToC(id, source);
   if (c == null) {
     throw new Error("WASM backend is the C extract. " + id + " does not lower to C.");
   }
   return cToWasm(c);
 }
 
-export function emitWat(id: string, source: string): string {
-  const c = lowerToC(id, source);
+export async function emitWat(id: string, source: string): Promise<string> {
+  const c = await lowerToC(id, source);
   if (c == null) throw new Error("WAT backend is the C extract. " + id + " does not lower to C.");
   return cToWat(c);
 }
 
-export function emitLoweredC(id: string, source: string): string {
-  const c = lowerToC(id, source);
+export async function emitLoweredC(id: string, source: string): Promise<string> {
+  const c = await lowerToC(id, source);
   if (c == null) throw new Error(id + " has no C lowering");
-  if (id === "c" || id === "cppp") return clower(gnuc(c));
   return c;
 }
 
 export async function runWasm(id: string, source: string): Promise<{ wat: string; bytes: Uint8Array; value: number }> {
-  const c = lowerToC(id, source);
+  const c = await lowerToC(id, source);
   if (c == null) throw new Error("WASM backend is the C extract.");
   return runCWasm(c);
 }

@@ -1,0 +1,109 @@
+/* PANINI.Frontend.SQL — CREATE / INSERT / SELECT integer extract.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.SQL
+
+FUNCTION sqlTrim(s)
+    i = 0
+    n = LEN(s)
+    WHILE i < n AND (s[i] == " " OR s[i] == TAB() OR s[i] == NEWLINE())
+        i = i + 1
+    END
+    j = n
+    WHILE j > i AND (s[j - 1] == " " OR s[j - 1] == TAB() OR s[j - 1] == NEWLINE() OR s[j - 1] == ";")
+        j = j - 1
+    END
+    RETURN SLICE(s, i, j)
+END
+
+FUNCTION sqlUpper(s)
+    out = ""
+    i = 0
+    WHILE i < LEN(s)
+        ch = s[i]
+        IF ch >= "a" AND ch <= "z"
+            out = out + CHR(ORD(ch) - 32)
+        ELSE
+            out = out + ch
+        END
+        i = i + 1
+    END
+    RETURN out
+END
+
+FUNCTION run_sql(source)
+    rows = []
+    last = 0
+    cur = ""
+    i = 0
+    n = LEN(source)
+    WHILE i <= n
+        ch = ""
+        IF i < n
+            ch = source[i]
+        END
+        IF i == n OR ch == ";"
+            t = sqlTrim(cur)
+            u = sqlUpper(t)
+            IF LEN(u) >= 6 AND SLICE(u, 0, 6) == "INSERT"
+                /* VALUES (40) */
+                p = 0
+                WHILE p < LEN(t) AND t[p] != "("
+                    p = p + 1
+                END
+                q = p + 1
+                num = ""
+                WHILE q < LEN(t) AND t[q] != ")"
+                    IF t[q] >= "0" AND t[q] <= "9"
+                        num = num + t[q]
+                    END
+                    q = q + 1
+                END
+                IF num != ""
+                    APPEND(rows, INT(num))
+                    last = INT(num)
+                END
+            ELSEIF LEN(u) >= 6 AND SLICE(u, 0, 6) == "SELECT"
+                /* n + 2  or n  WHERE n > 10 */
+                acc = 0
+                add = 0
+                IF CONTAINS(t, "+")
+                    add = 2
+                    IF CONTAINS(t, "+ 2") OR CONTAINS(t, "+2")
+                        add = 2
+                    END
+                END
+                minv = -999999
+                IF CONTAINS(u, "WHERE")
+                    minv = 10
+                END
+                ri = 0
+                WHILE ri < LEN(rows)
+                    v = rows[ri] + add
+                    IF rows[ri] > minv OR minv == -999999
+                        last = v
+                        PRINT v
+                    END
+                    IF minv != -999999
+                        IF rows[ri] > minv
+                            last = rows[ri]
+                            PRINT last
+                        END
+                    END
+                    ri = ri + 1
+                END
+            END
+            cur = ""
+        ELSE
+            cur = cur + ch
+        END
+        i = i + 1
+    END
+    RETURN {ok: TRUE, value: last, frontend: "PANINI.Frontend.SQL"}
+END
+
+FUNCTION main()
+    r = run_sql("INSERT INTO t VALUES (40); SELECT n + 2 FROM t;")
+    RETURN r.value
+END
+END

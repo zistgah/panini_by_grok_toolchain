@@ -1,0 +1,20 @@
+/* PANINI.Frontend.Pascal — STANDARD GREEN on Pascal-P5 ISO 7185 PRT extract + hello.pas.
+ * Full iso7185pat.pas (123 KB) is GAP. CORE GREEN remains tests/std/pascal.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Pascal
+FUNCTION run_pascal(source)
+    lowered = pascalToC(source)
+    IF CONTAINS(lowered, "REJECT")
+        RETURN {ok: FALSE, rejected: "pascal", frontend: "PANINI.Frontend.Pascal"}
+    END
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Pascal"
+    r.lowered = lowered
+    RETURN r
+END
+FUNCTION main()
+    r = run_pascal("function main: integer; begin main := 0 end.")
+    RETURN r.value
+END
+END

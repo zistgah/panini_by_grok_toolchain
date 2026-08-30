@@ -1,0 +1,11 @@
+/* PANINI.Frontend.Ruby — def / end integer extract via feRun.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Ruby
+FUNCTION run_ruby(source)
+    RETURN feRun(source, "PANINI.Frontend.Ruby")
+END
+FUNCTION main()
+    RETURN 0
+END
+END

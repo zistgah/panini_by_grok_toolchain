@@ -1,0 +1,12 @@
+/* PANINI.Frontend.Scheme — R5RS integer extract in PANINI.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Scheme
+FUNCTION run_scheme(source)
+    RETURN sxRun(source, "PANINI.Frontend.Scheme")
+END
+FUNCTION main()
+    r = run_scheme("(+ 1 2)")
+    RETURN r.value
+END
+END

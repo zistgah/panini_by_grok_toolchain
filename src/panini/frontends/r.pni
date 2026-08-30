@@ -1,0 +1,12 @@
+/* PANINI.Frontend.R — function integer extract via feRun.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.R
+FUNCTION run_r(source)
+    RETURN feRun(source, "PANINI.Frontend.R")
+END
+FUNCTION main()
+    r = run_r("add <- function(a, b) { a + b }")
+    RETURN r.value
+END
+END

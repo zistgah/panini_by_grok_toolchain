@@ -258,7 +258,7 @@ var d = +E.thing;
     E(
       "annot",
       "Type annotations stripped",
-      "Parameter and return annotations vanish before js262.",
+      "Parameter and return annotations vanish before the PANINI JavaScript evaluator.",
       `function add(a: number, b: number): number {
   return a + b;
 }

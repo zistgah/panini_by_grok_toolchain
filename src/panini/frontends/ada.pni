@@ -1,0 +1,22 @@
+/* Copyright (C) 1993-2026 Abhishek Choudhary
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Ada integer extract. adaToC in to_c.pni, then run_c. Written in PANINI.
+ */
+MODULE PANINI.Frontend.Ada
+
+FUNCTION run_ada(source)
+    n = LEN(source)
+    lowered = adaToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Ada"
+    r.lowered = lowered
+    r.bytes = n
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_ada("function Main return Integer is\n  N : Integer := 40 + 2;\nbegin\n  return N;\nend Main;\n")
+    RETURN r.value
+END
+
+END

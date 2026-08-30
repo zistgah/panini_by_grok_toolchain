@@ -1,0 +1,12 @@
+/* PANINI.Frontend.Perl — sub integer extract via feRun.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Perl
+FUNCTION run_perl(source)
+    RETURN feRun(source, "PANINI.Frontend.Perl")
+END
+FUNCTION main()
+    r = run_perl("sub add { return 42; }")
+    RETURN r.value
+END
+END

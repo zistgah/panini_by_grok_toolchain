@@ -1,0 +1,149 @@
+MODULE PANINI.Frontend.Zig
+
+FUNCTION zIsDigit(ch)
+    RETURN ch >= "0" AND ch <= "9"
+END
+
+FUNCTION zIsAlpha(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+
+FUNCTION zTok(kind, value)
+    RETURN {kind: kind, value: value}
+END
+
+FUNCTION zLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSE
+            IF ch == "/" AND i + 1 < n AND source[i + 1] == "/"
+                WHILE i < n AND source[i] != NEWLINE()
+                    i = i + 1
+                END
+            ELSE
+                IF zIsDigit(ch)
+                    raw = ""
+                    WHILE i < n AND zIsDigit(source[i])
+                        raw = raw + source[i]
+                        i = i + 1
+                    END
+                    APPEND(tokens, zTok("NUM", raw))
+                ELSE
+                    IF zIsAlpha(ch)
+                        raw = ""
+                        WHILE i < n AND (zIsAlpha(source[i]) OR zIsDigit(source[i]))
+                            raw = raw + source[i]
+                            i = i + 1
+                        END
+                        kind = "IDENT"
+                        IF raw == "pub" OR raw == "fn" OR raw == "const" OR raw == "var" OR raw == "return" OR raw == "print" OR raw == "debug"
+                            kind = "KW"
+                        END
+                        APPEND(tokens, zTok(kind, raw))
+                    ELSE
+                        APPEND(tokens, zTok("OP", ch))
+                        i = i + 1
+                    END
+                END
+            END
+        END
+    END
+    APPEND(tokens, zTok("EOF", ""))
+    RETURN tokens
+END
+
+FUNCTION zNew(tokens)
+    RETURN {tokens: tokens, i: 0}
+END
+
+FUNCTION zPeek(st)
+    IF st.i >= LEN(st.tokens)
+        RETURN zTok("EOF", "")
+    END
+    RETURN st.tokens[st.i]
+END
+
+FUNCTION zEat(st)
+    t = zPeek(st)
+    st.i = st.i + 1
+    RETURN t
+END
+
+FUNCTION zParseAtom(st)
+    t = zPeek(st)
+    IF t.kind == "NUM"
+        zEat(st)
+        RETURN {op: "const", value: INT(t.value)}
+    END
+    IF t.value == "("
+        zEat(st)
+        e = zParseExpr(st)
+        IF zPeek(st).value == ")"
+            zEat(st)
+        END
+        RETURN e
+    END
+    zEat(st)
+    RETURN {op: "const", value: 0}
+END
+
+FUNCTION zParseMul(st)
+    left = zParseAtom(st)
+    WHILE zPeek(st).value == "*" OR zPeek(st).value == "/"
+        op = zEat(st).value
+        left = {op: "bin", operator: op, left: left, right: zParseAtom(st)}
+    END
+    RETURN left
+END
+
+FUNCTION zParseExpr(st)
+    left = zParseMul(st)
+    WHILE zPeek(st).value == "+" OR zPeek(st).value == "-"
+        op = zEat(st).value
+        left = {op: "bin", operator: op, left: left, right: zParseMul(st)}
+    END
+    RETURN left
+END
+
+FUNCTION zEval(e)
+    IF e.op == "const"
+        RETURN e.value
+    END
+    IF e.op == "bin"
+        l = zEval(e.left)
+        r = zEval(e.right)
+        IF e.operator == "+"
+            RETURN l + r
+        END
+        IF e.operator == "-"
+            RETURN l - r
+        END
+        IF e.operator == "*"
+            RETURN l * r
+        END
+        RETURN l / r
+    END
+    RETURN 0
+END
+
+FUNCTION run_zig(source)
+    tokens = zLex(source)
+    lowered = zigToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Zig"
+    r.zig_tokens = LEN(tokens)
+    r.lowered = lowered
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_zig("pub fn main() void { std.debug.print(\"{d}\", .{40+2}); }")
+    RETURN r.value
+END
+
+END

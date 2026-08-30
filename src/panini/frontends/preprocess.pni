@@ -1,0 +1,309 @@
+/* PANINI C preprocessor — translation phases 1–4.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ * Object and function-like #define, #ifdef / #ifndef / #if / #else / #endif, #undef.
+ * Written in PANINI. Not gcc -E.
+ */
+MODULE PANINI.Frontend.Preprocess
+
+FUNCTION ppIsIdentStart(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+
+FUNCTION ppIsIdentChar(ch)
+    RETURN ppIsIdentStart(ch) OR (ch >= "0" AND ch <= "9")
+END
+
+FUNCTION ppTrim(s)
+    i = 0
+    n = LEN(s)
+    WHILE i < n AND (s[i] == " " OR s[i] == TAB() OR s[i] == CR())
+        i = i + 1
+    END
+    j = n
+    WHILE j > i AND (s[j - 1] == " " OR s[j - 1] == TAB() OR s[j - 1] == CR())
+        j = j - 1
+    END
+    RETURN SLICE(s, i, j)
+END
+
+FUNCTION ppStarts(s, p)
+    IF LEN(s) < LEN(p)
+        RETURN 0
+    END
+    RETURN SLICE(s, 0, LEN(p)) == p
+END
+
+FUNCTION ppJoinNL(lines)
+    o = ""
+    k = 0
+    WHILE k < LEN(lines)
+        IF k > 0
+            o = o + NEWLINE()
+        END
+        o = o + lines[k]
+        k = k + 1
+    END
+    RETURN o
+END
+
+FUNCTION ppSplitLines(src)
+    lines = []
+    cur = ""
+    i = 0
+    n = LEN(src)
+    WHILE i < n
+        IF src[i] == NEWLINE()
+            APPEND(lines, cur)
+            cur = ""
+        ELSE
+            cur = cur + src[i]
+        END
+        i = i + 1
+    END
+    APPEND(lines, cur)
+    RETURN lines
+END
+
+FUNCTION ppCont(src)
+    out = ""
+    i = 0
+    n = LEN(src)
+    WHILE i < n
+        IF src[i] == BACKSLASH() AND i + 1 < n AND src[i + 1] == NEWLINE()
+            i = i + 2
+        ELSE
+            out = out + src[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION ppWordReplace(src, a, b)
+    out = ""
+    i = 0
+    n = LEN(src)
+    m = LEN(a)
+    WHILE i < n
+        hit = 0
+        IF m > 0 AND i + m <= n
+            IF SLICE(src, i, i + m) == a
+                leftOk = 1
+                rightOk = 1
+                IF i > 0
+                    IF ppIsIdentChar(src[i - 1])
+                        leftOk = 0
+                    END
+                END
+                IF i + m < n
+                    IF ppIsIdentChar(src[i + m])
+                        rightOk = 0
+                    END
+                END
+                IF leftOk AND rightOk
+                    hit = 1
+                END
+            END
+        END
+        IF hit
+            out = out + b
+            i = i + m
+        ELSE
+            out = out + src[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION ppSkipOn(skip)
+    k = 0
+    WHILE k < LEN(skip)
+        IF skip[k] == 0
+            RETURN 0
+        END
+        k = k + 1
+    END
+    RETURN 1
+END
+
+FUNCTION ppExpand(text, obj, fn, hid)
+    i = 0
+    n = LEN(text)
+    r = ""
+    WHILE i < n
+        ch = text[i]
+        IF ppIsIdentStart(ch)
+            j = i + 1
+            WHILE j < n AND ppIsIdentChar(text[j])
+                j = j + 1
+            END
+            id = SLICE(text, i, j)
+            i = j
+            IF HASKEY(hid, id)
+                r = r + id
+            ELSE
+                k = i
+                WHILE k < n AND (text[k] == " " OR text[k] == TAB())
+                    k = k + 1
+                END
+                IF HASKEY(fn, id) AND k < n AND text[k] == "(" AND fn[id] != NULL
+                    mac = fn[id]
+                    depth = 1
+                    p = k + 1
+                    args = []
+                    cur = ""
+                    WHILE p < n AND depth > 0
+                        cch = text[p]
+                        p = p + 1
+                        IF cch == "("
+                            depth = depth + 1
+                            cur = cur + cch
+                        ELSEIF cch == ")"
+                            depth = depth - 1
+                            IF depth > 0
+                                cur = cur + cch
+                            END
+                        ELSEIF cch == "," AND depth == 1
+                            APPEND(args, ppTrim(cur))
+                            cur = ""
+                        ELSE
+                            cur = cur + cch
+                        END
+                    END
+                    IF ppTrim(cur) != "" OR LEN(args) > 0
+                        APPEND(args, ppTrim(cur))
+                    END
+                    i = p
+                    body = mac.body
+                    pi = 0
+                    WHILE pi < LEN(mac.params)
+                        av = ""
+                        IF pi < LEN(args)
+                            av = args[pi]
+                        END
+                        body = ppWordReplace(body, mac.params[pi], av)
+                        pi = pi + 1
+                    END
+                    hid[id] = 1
+                    r = r + ppExpand(body, obj, fn, hid)
+                    hid[id] = 0
+                ELSEIF HASKEY(obj, id) AND obj[id] != NULL
+                    hid[id] = 1
+                    r = r + ppExpand(obj[id], obj, fn, hid)
+                    hid[id] = 0
+                ELSE
+                    r = r + id
+                END
+            END
+        ELSE
+            r = r + ch
+            i = i + 1
+        END
+    END
+    RETURN r
+END
+
+FUNCTION ppTakeDefine(rest, obj, fn)
+    rest = ppTrim(rest)
+    i = 0
+    n = LEN(rest)
+    IF n == 0
+        RETURN 0
+    END
+    IF NOT ppIsIdentStart(rest[0])
+        RETURN 0
+    END
+    i = 1
+    WHILE i < n AND ppIsIdentChar(rest[i])
+        i = i + 1
+    END
+    name = SLICE(rest, 0, i)
+    IF i < n AND rest[i] == "("
+        i = i + 1
+        params = []
+        cur = ""
+        WHILE i < n AND rest[i] != ")"
+            IF rest[i] == ","
+                p = ppTrim(cur)
+                IF p != ""
+                    APPEND(params, p)
+                END
+                cur = ""
+            ELSE
+                cur = cur + rest[i]
+            END
+            i = i + 1
+        END
+        p = ppTrim(cur)
+        IF p != ""
+            APPEND(params, p)
+        END
+        IF i < n AND rest[i] == ")"
+            i = i + 1
+        END
+        body = ppTrim(SLICE(rest, i, n))
+        fn[name] = {params: params, body: body}
+        obj[name] = NULL
+    ELSE
+        body = ppTrim(SLICE(rest, i, n))
+        obj[name] = body
+        fn[name] = NULL
+    END
+    RETURN 1
+END
+
+FUNCTION ppCpp(source)
+    src = ppCont(source)
+    lines = ppSplitLines(src)
+    obj = {}
+    fn = {}
+    out = []
+    skip = []
+    li = 0
+    WHILE li < LEN(lines)
+        line = lines[li]
+        t = ppTrim(line)
+        IF LEN(t) > 0 AND t[0] == "#"
+            body = ppTrim(SLICE(t, 1, LEN(t)))
+            on = ppSkipOn(skip)
+            IF ppStarts(body, "define ") AND on
+                ppTakeDefine(SLICE(body, 7, LEN(body)), obj, fn)
+            ELSEIF ppStarts(body, "undef ") AND on
+                name = ppTrim(SLICE(body, 6, LEN(body)))
+                obj[name] = NULL
+                fn[name] = NULL
+            ELSEIF ppStarts(body, "ifdef ")
+                name = ppTrim(SLICE(body, 6, LEN(body)))
+                APPEND(skip, on AND HASKEY(obj, name) AND obj[name] != NULL)
+            ELSEIF ppStarts(body, "ifndef ")
+                name = ppTrim(SLICE(body, 7, LEN(body)))
+                APPEND(skip, on AND NOT (HASKEY(obj, name) AND obj[name] != NULL))
+            ELSEIF ppStarts(body, "if ")
+                cond = ppTrim(SLICE(body, 3, LEN(body)))
+                APPEND(skip, on AND cond != "0" AND cond != "false")
+            ELSEIF ppStarts(body, "else")
+                IF LEN(skip) > 0
+                    skip[LEN(skip) - 1] = 1 - skip[LEN(skip) - 1]
+                END
+            ELSEIF ppStarts(body, "endif")
+                IF LEN(skip) > 0
+                    skip = SLICE(skip, 0, LEN(skip) - 1)
+                END
+            END
+        ELSE
+            IF ppSkipOn(skip)
+                APPEND(out, ppExpand(line, obj, fn, {}))
+            END
+        END
+        li = li + 1
+    END
+    RETURN ppJoinNL(out)
+END
+
+FUNCTION main()
+    r = ppCpp("#define A 40" + NEWLINE() + "int x = A;")
+    RETURN 0
+END
+
+END

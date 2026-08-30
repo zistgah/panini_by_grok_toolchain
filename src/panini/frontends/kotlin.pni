@@ -1,0 +1,22 @@
+/* Copyright (C) 1993-2026 Abhishek Choudhary
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Kotlin integer extract. kotlinToC in to_c.pni, then run_c. Written in PANINI.
+ */
+MODULE PANINI.Frontend.Kotlin
+
+FUNCTION run_kotlin(source)
+    n = LEN(source)
+    lowered = kotlinToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Kotlin"
+    r.lowered = lowered
+    r.bytes = n
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_kotlin("fun add(a: Int, b: Int): Int {\n  return a + b\n}\nfun main(): Int {\n  val n = add(40, 2)\n  println(n)\n  return n\n}\n")
+    RETURN r.value
+END
+
+END

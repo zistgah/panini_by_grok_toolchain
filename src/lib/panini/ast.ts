@@ -1,61 +1,13 @@
 /* Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
- * Dump / read AST. C uses the extract parser. Others: lowered-C, PANINI parse, or source wrapper.
+ * Dump / read AST. Parsing and lowering are PANINI modules.
+ * Stage-0 lex/parse is used only for PANINI source itself (the VM).
  */
-import { parseC } from "./engine/cparse.js";
 import { lex } from "./engine/lexer.js";
 import { Parser } from "./engine/parser.js";
-import {
-  rustToC,
-  goToC,
-  juliaToC,
-  zigToC,
-  fortranToC,
-  pascalToC,
-  javaToC,
-  csharpToC,
-  kotlinToC,
-  swiftToC,
-  scalaToC,
-  dartToC,
-  adaToC,
-} from "./engine/stdlower.js";
-import { cpplower } from "./engine/cpplower.js";
+import { pniFn, pniLowerToC, runPniFrontend } from "./pni-front.ts";
 
-const TO_C: Record<string, (s: string) => string> = {
-  rust: rustToC,
-  go: goToC,
-  julia: juliaToC,
-  zig: zigToC,
-  fortran: fortranToC,
-  pascal: pascalToC,
-  java: javaToC,
-  csharp: csharpToC,
-  kotlin: kotlinToC,
-  swift: swiftToC,
-  scala: scalaToC,
-  dart: dartToC,
-  ada: adaToC,
-  cpp: cpplower,
-};
-
-export function lowerToC(id: string, source: string): string | null {
-  if (id === "c" || id === "cppp") return source;
-  const fn = TO_C[id];
-  return fn ? fn(source) : null;
-}
-
-function pythonAst(source: string) {
-  const fns: { op: string; name: string; params: string[] }[] = [];
-  const re = /^def\s+(\w+)\s*\(([^)]*)\)\s*:/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(source))) {
-    const params = m[2]
-      .split(",")
-      .map((x) => x.trim().split("=")[0].trim())
-      .filter(Boolean);
-    fns.push({ op: "def", name: m[1], params });
-  }
-  return { op: "module", functions: fns };
+export async function lowerToC(id: string, source: string): Promise<string | null> {
+  return pniLowerToC(id, source);
 }
 
 export type AstDump = {
@@ -67,27 +19,30 @@ export type AstDump = {
   note?: string;
 };
 
-export function dumpAst(id: string, source: string): AstDump {
+export async function dumpAst(id: string, source: string): Promise<AstDump> {
   const src = String(source);
   if (id === "c" || id === "cppp") {
-    return { lang: id, frontend: "PANINI.Frontend.C", source: src, ast: parseC(src) };
+    const pre = await pniFn("c", "ppCpp", [src]);
+    const ast = await pniFn("c", "cParse", [pre == null ? src : String(pre)]);
+    return { lang: id, frontend: "PANINI.Frontend.C", source: src, ast };
   }
-  const lowered = lowerToC(id, src);
+  const lowered = await pniLowerToC(id, src);
   if (lowered != null) {
+    const ast = await pniFn("c", "cParse", [lowered]);
     return {
       lang: id,
       frontend: "PANINI.Frontend." + id,
       source: src,
       lowered,
-      ast: parseC(lowered),
-      note: "AST is the lowered C extract, not a native " + id + " tree.",
+      ast,
+      note: "AST is the C tree after PANINI lowering in to_c.pni.",
     };
   }
   if (id === "panini") {
     try {
       const tokens = lex(src, "program.pni");
       const ast = new Parser(tokens, src, "program.pni").parse();
-      return { lang: id, frontend: "PANINI", source: src, ast };
+      return { lang: id, frontend: "PANINI", source: src, ast, note: "Stage-0 PANINI parser (the VM)." };
     } catch (e) {
       return {
         lang: id,
@@ -98,21 +53,13 @@ export function dumpAst(id: string, source: string): AstDump {
       };
     }
   }
-  if (id === "python") {
-    return {
-      lang: id,
-      frontend: "PANINI.Frontend.Python",
-      source: src,
-      ast: pythonAst(src),
-      note: "def/params only — the workbench Python is a def-main subset.",
-    };
-  }
+  const r = await runPniFrontend(id, src);
   return {
     lang: id,
-    frontend: "PANINI.Frontend." + id,
+    frontend: r.frontend || "PANINI.Frontend." + id,
     source: src,
-    ast: { op: "source" },
-    note: "No structured AST for this extract. --read-ast will reuse the source field.",
+    ast: (r as { ast?: unknown }).ast ?? { op: "source", token_count: (r as { token_count?: number }).token_count },
+    note: r.note || "PANINI frontend.",
   };
 }
 

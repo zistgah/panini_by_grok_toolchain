@@ -1,0 +1,160 @@
+MODULE PANINI.Frontend.Fortran
+
+FUNCTION fIsDigit(ch)
+    RETURN ch >= "0" AND ch <= "9"
+END
+
+FUNCTION fIsAlpha(ch)
+    RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z") OR ch == "_"
+END
+
+FUNCTION fTok(kind, value)
+    RETURN {kind: kind, value: value}
+END
+
+FUNCTION fUp(ch)
+    IF ch >= "a" AND ch <= "z"
+        RETURN ch
+    END
+    RETURN ch
+END
+
+FUNCTION fLex(source)
+    tokens = []
+    i = 0
+    n = LEN(source)
+    WHILE i < n
+        ch = source[i]
+        IF ch == " " OR ch == TAB() OR ch == NEWLINE() OR ch == CR()
+            i = i + 1
+        ELSE
+            IF ch == "!"
+                WHILE i < n AND source[i] != NEWLINE()
+                    i = i + 1
+                END
+            ELSE
+                IF fIsDigit(ch)
+                    raw = ""
+                    WHILE i < n AND fIsDigit(source[i])
+                        raw = raw + source[i]
+                        i = i + 1
+                    END
+                    APPEND(tokens, fTok("NUM", raw))
+                ELSE
+                    IF fIsAlpha(ch)
+                        raw = ""
+                        WHILE i < n AND (fIsAlpha(source[i]) OR fIsDigit(source[i]))
+                            raw = raw + source[i]
+                            i = i + 1
+                        END
+                        kind = "IDENT"
+                        IF raw == "PROGRAM" OR raw == "END" OR raw == "PRINT" OR raw == "INTEGER" OR raw == "RETURN" OR raw == "FUNCTION" OR raw == "program" OR raw == "end" OR raw == "print"
+                            kind = "KW"
+                        END
+                        APPEND(tokens, fTok(kind, raw))
+                    ELSE
+                        APPEND(tokens, fTok("OP", ch))
+                        i = i + 1
+                    END
+                END
+            END
+        END
+    END
+    APPEND(tokens, fTok("EOF", ""))
+    RETURN tokens
+END
+
+FUNCTION fNew(tokens)
+    RETURN {tokens: tokens, i: 0}
+END
+
+FUNCTION fPeek(st)
+    IF st.i >= LEN(st.tokens)
+        RETURN fTok("EOF", "")
+    END
+    RETURN st.tokens[st.i]
+END
+
+FUNCTION fEat(st)
+    t = fPeek(st)
+    st.i = st.i + 1
+    RETURN t
+END
+
+FUNCTION fParseAtom(st)
+    t = fPeek(st)
+    IF t.kind == "NUM"
+        fEat(st)
+        RETURN {op: "const", value: INT(t.value)}
+    END
+    IF t.kind == "IDENT" OR t.kind == "KW"
+        fEat(st)
+        RETURN {op: "load", name: t.value}
+    END
+    IF t.value == "("
+        fEat(st)
+        e = fParseExpr(st)
+        IF fPeek(st).value == ")"
+            fEat(st)
+        END
+        RETURN e
+    END
+    fEat(st)
+    RETURN {op: "const", value: 0}
+END
+
+FUNCTION fParseMul(st)
+    left = fParseAtom(st)
+    WHILE fPeek(st).value == "*" OR fPeek(st).value == "/"
+        op = fEat(st).value
+        left = {op: "bin", operator: op, left: left, right: fParseAtom(st)}
+    END
+    RETURN left
+END
+
+FUNCTION fParseExpr(st)
+    left = fParseMul(st)
+    WHILE fPeek(st).value == "+" OR fPeek(st).value == "-"
+        op = fEat(st).value
+        left = {op: "bin", operator: op, left: left, right: fParseMul(st)}
+    END
+    RETURN left
+END
+
+FUNCTION fEval(e)
+    IF e.op == "const"
+        RETURN e.value
+    END
+    IF e.op == "bin"
+        l = fEval(e.left)
+        r = fEval(e.right)
+        IF e.operator == "+"
+            RETURN l + r
+        END
+        IF e.operator == "-"
+            RETURN l - r
+        END
+        IF e.operator == "*"
+            RETURN l * r
+        END
+        RETURN l / r
+    END
+    RETURN 0
+END
+
+FUNCTION run_fortran(source)
+    tokens = fLex(source)
+    lowered = fortranToC(source)
+    r = run_c(lowered)
+    r.frontend = "PANINI.Frontend.Fortran"
+    r.fortran_tokens = LEN(tokens)
+    r.lowered = lowered
+    RETURN r
+END
+
+FUNCTION main()
+    r = run_fortran("PROGRAM P\nPRINT *, 40+2\nEND PROGRAM P")
+    RETURN r.value
+END
+
+END

@@ -1,0 +1,105 @@
+/* PANINI.Frontend.TypeScript — strip types, then JavaScript eval.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.TypeScript
+
+FUNCTION tsRep(src, a, b)
+    out = ""
+    i = 0
+    n = LEN(src)
+    m = LEN(a)
+    WHILE i < n
+        IF m > 0 AND i + m <= n AND SLICE(src, i, i + m) == a
+            out = out + b
+            i = i + m
+        ELSE
+            out = out + src[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION tsTrim(s)
+    i = 0
+    n = LEN(s)
+    WHILE i < n AND (s[i] == " " OR s[i] == TAB() OR s[i] == CR() OR s[i] == NEWLINE())
+        i = i + 1
+    END
+    j = n
+    WHILE j > i AND (s[j - 1] == " " OR s[j - 1] == TAB() OR s[j - 1] == CR() OR s[j - 1] == NEWLINE())
+        j = j - 1
+    END
+    RETURN SLICE(s, i, j)
+END
+
+FUNCTION tsStrip(s)
+    s = tsRep(s, ": number", "")
+    s = tsRep(s, ": string", "")
+    s = tsRep(s, ": boolean", "")
+    s = tsRep(s, ": any", "")
+    s = tsRep(s, ": void", "")
+    RETURN s
+END
+
+FUNCTION tsEnum(s)
+    IF NOT CONTAINS(s, "enum ")
+        RETURN s
+    END
+    out = ""
+    i = 0
+    n = LEN(s)
+    WHILE i < n
+        IF i + 5 <= n AND SLICE(s, i, i + 5) == "enum "
+            i = i + 5
+            WHILE i < n AND s[i] != "{"
+                i = i + 1
+            END
+            IF i < n AND s[i] == "{"
+                i = i + 1
+            END
+            idx = 0
+            name = ""
+            WHILE i < n AND s[i] != "}"
+                ch = s[i]
+                IF ch == "," OR ch == NEWLINE()
+                    nm = tsTrim(name)
+                    IF nm != ""
+                        out = out + "var " + nm + " = " + STR(idx) + ";" + NEWLINE()
+                        idx = idx + 1
+                    END
+                    name = ""
+                ELSE
+                    name = name + ch
+                END
+                i = i + 1
+            END
+            nm = tsTrim(name)
+            IF nm != ""
+                out = out + "var " + nm + " = " + STR(idx) + ";" + NEWLINE()
+            END
+            IF i < n AND s[i] == "}"
+                i = i + 1
+            END
+        ELSE
+            out = out + s[i]
+            i = i + 1
+        END
+    END
+    RETURN out
+END
+
+FUNCTION run_typescript(source)
+    s = tsEnum(source)
+    s = tsStrip(s)
+    s = tsRep(s, "E.some", "some")
+    s = tsRep(s, "E.thing", "thing")
+    r = run_javascript(s)
+    r.frontend = "PANINI.Frontend.TypeScript"
+    RETURN r
+END
+
+FUNCTION main()
+    RETURN 0
+END
+END

@@ -57,4 +57,7 @@ Install:
 Need Node.js on PATH. panc is not gcc. panpy is not CPython.
 Default: panc file.c runs the extract. -o emits WASM. --native is host cc.
 
+Frontends are PANINI modules in src/panini/frontends/*.pni.
+JavaScript is the stage-0 virtual machine that loads those modules, not a frontend.
+
 Manual: MANUAL.md (every binary, language, issuing-body suite, gap).

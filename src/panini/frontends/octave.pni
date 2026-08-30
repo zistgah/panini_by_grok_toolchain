@@ -1,0 +1,12 @@
+/* PANINI.Frontend.Octave — function integer extract via feRun.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Octave
+FUNCTION run_octave(source)
+    RETURN feRun(source, "PANINI.Frontend.Octave")
+END
+FUNCTION main()
+    r = run_octave("function r = add(a, b)" + NEWLINE() + "  r = a + b;" + NEWLINE() + "end")
+    RETURN r.value
+END
+END

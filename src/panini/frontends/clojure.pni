@@ -1,0 +1,12 @@
+/* PANINI.Frontend.Clojure — defn / if integer extract in PANINI.
+ * Copyright (C) 1993-2026 Abhishek Choudhary | GPL-3.0-or-later
+ */
+MODULE PANINI.Frontend.Clojure
+FUNCTION run_clojure(source)
+    RETURN sxRun(source, "PANINI.Frontend.Clojure")
+END
+FUNCTION main()
+    r = run_clojure("(+ 1 2)")
+    RETURN r.value
+END
+END
