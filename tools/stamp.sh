@@ -6,7 +6,7 @@ unzip -d panini_by_grok_toolchain_v${VER} panini_by_grok_toolchain_v${VER}.zip &
 cd panini_by_grok_toolchain &&\
 git checkout main &&\
 git reset --hard &&\
-cp -r ../panini_by_grok_toolchain_v${VER}/panini/* ./ &&\
+cp -r ../panini_by_grok_toolchain_v${VER}/panini-toolchain/* ./ &&\
 node tests/run.mjs &&\
 node scripts/selfhost.mjs &&\
 node scripts/prove_theorem.mjs &&\
